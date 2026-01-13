@@ -4,6 +4,8 @@ from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
 
 
+#model : event, folder, folder_paper, paper, paper_summary, paper_tag, search_log, tag, user, user_auth_identity, user_paper, user_tag
+
 # Shared properties
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
