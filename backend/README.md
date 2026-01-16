@@ -1,118 +1,113 @@
-# Jaram Paper Backend
-> arXiv 논문 **추천 & 요약** 백엔드 시스템 (API + 크롤링/요약 파이프라인)
+# Gomguk-BE Backend
+> arXiv 논문 **추천 & 요약** 백엔드 시스템 (API + 크롤링/요약 파이프라인)  
+> 현재는 **Google OAuth 로그인 + 기본 페이지 라우팅** 중심으로 구성 중이며, **GitHub OAuth는 추후 추가 예정**입니다.
 
 ![python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![framework](https://img.shields.io/badge/FastAPI-API-success)
-![db](https://img.shields.io/badge/DB-SQLite-lightgrey)
-![license](https://img.shields.io/badge/License-MIT-informational)
+![db](https://img.shields.io/badge/DB-PostgreSQL-blueviolet)
+![auth](https://img.shields.io/badge/Auth-Google%20OAuth2-orange)
 
 ---
 
 ## ✨ 한 줄 소개
-사용자 관심사/행동을 기반으로 arXiv 논문을 수집하고, 선별·요약 후 **개인화 추천**으로 제공하는 백엔드입니다.
-
-## ✅ 주요 기능
-- **추천 논문 조회 API**
-  - 사용자 정보를 기반으로 추천 알고리즘을 통해 논문을 반환
-- **논문 크롤링 및 요약 파이프라인**
-  - 크롤링 → 선별 → 요약 자동화
-- **검색/마이페이지 기능(연동 전제)**
-  - 검색: 태그/필터
-  - 마이페이지: 저장/좋아요/히스토리
+사용자 관심사/행동을 기반으로 논문을 수집하고, 선별·요약 후 **개인화 추천**으로 제공하는 백엔드입니다.
 
 ---
 
-## 📦 프로젝트 문서
-- `SETUP_GUIDE.md` : 설치 및 실행 가이드
-- `API_GUIDE.md` : API 사용 가이드
-- `README_STRUCTURE.md` : 프로젝트 구조 설명
+## ✅ 주요 기능 (WIP)
+- **OAuth 로그인**
+  - Google OAuth2 로그인/콜백 처리
+  - 신규 유저 플로우(`is_new_user`) 지원
+- **페이지/기능 라우팅**
+  - 온보딩, 마이페이지, 검색 등 기본 엔드포인트 제공
+- **DB 연동**
+  - Docker 기반 PostgreSQL 로컬 개발 환경
+  - 초기 테이블 생성 스크립트 제공
+
+> 아래 문서는 “현재 레포 상태 기준”으로 로컬 실행/연동에 필요한 것만 정리했습니다.
 
 ---
 
-## 🚀 빠른 시작 (Quick Start)
+## 🧭 서버 엔드포인트
 
-```bash
-cd backend
-pip install -r requirements.txt
-
-python -c "from core.database import init_db; init_db()"
-python init_demo_data.py
-
-python main.py
-```
-
-- 서버: http://localhost:8000
-- Swagger 문서: http://localhost:8000/docs
+- `/`
+- `/oauth/google/login`  
+  - 구글 로그인 페이지로 리디렉션
+- `/oauth/google/callback`  
+  - 로그인 후 구글 토큰 획득 → 사용자 정보 가져온 후 토큰 발급  
+  - 새 유저면 `is_new_user = true` → 온보딩으로 리디렉션 필요
+- `/mypage`
+- `/onboarding`
+- `/search`
 
 ---
 
-## 🔧 환경 변수 설정
-루트(혹은 `backend` 디렉토리)에 `.env` 파일을 만들고 아래를 추가하세요.
+## 🚀 빠른 시작 (Windows CMD 기준)
 
-```env
-DATABASE_URL=sqlite:///./data/papers.db
-OPENAI_API_KEY=your_openai_api_key_here
+### 1) 가상환경 세팅
+1) 가상환경 생성  
+   `C:\Gomguk-BE\backend>uv venv .venv`
 
-API_HOST=0.0.0.0
-API_PORT=8000
+2) 인터프리터 설정 (PyCharm 기준)  
+   - `File → Settings → Python → Interpreter`  
+   - Python Interpreter를 아래 경로로 설정:  
+     - `C:\Gomguk-BE\backend\.venv\Scripts\python.exe`
 
-ARXIV_CATEGORIES=cs.AI,cs.LG,cs.CV,cs.CL
-MAX_PAPERS_PER_CRAWL=100
-TOP_CITATIONS_COUNT=5
-```
-
-> `OPENAI_API_KEY`가 없으면 **데모용 요약**이 생성됩니다.
+3) 라이브러리 설치  
+   `C:\Gomguk-BE\backend>uv pip install -r requirements.txt`
 
 ---
 
-## 🧭 엔드포인트
-- `/` : 메인페이지 - 50개 배치 추천
-- `/onboarding` : 온보딩
-- `/search` : 검색 - 태그/필터 기능
-- `/mypage` : 마이페이지 - 저장/좋아요/히스토리
+## 🐘 DB 연동 (Docker + Postgres, Windows CMD 기준)
 
-> 주요 API 엔드포인트는 **(예정)** 입니다.
+> ⚠️ **가상환경 세팅을 먼저 진행해 주세요!!**
 
----
+1) DB 저장 폴더 생성  
+   `C:\>mkdir C:\docker\pgdata`
 
-## 🧪 파이프라인 실행
-크롤링-선별-요약 파이프라인을 수동 실행:
+2) 컨테이너 생성 및 실행
 
-```bash
-python pipeline.py
-```
+   - `C:\>docker run -d --name pg ^
+   More?   -e POSTGRES_USER=postgres ^
+   More?   -e POSTGRES_PASSWORD=<"기타 페이지를 참조해 pw를 입력해주세요!"> ^
+   More?   -e POSTGRES_DB=app ^
+   More?   -e TZ=Asia/Seoul ^
+   More?   -p 5433:5432 ^
+   More?   -v C:\docker\pgdata:/var/lib/postgresql/data ^
+   More?   postgres:16-alpine`
 
----
+3) 실행 확인 (1이 출력되어야 합니다)  
+   - `C:\>docker ps`  
+   - `C:\>docker exec -it pg psql -U postgres -d app -c "select 1;"`
 
-## 🧠 추천 알고리즘 개요
-추천 점수는 아래 요소들을 종합해 계산합니다.
+4) 테이블 생성 (이미 있을 시 무시됩니다) *(실행 경로 주의)*  
+   `C:\Gomguk-BE\backend>uv run python -m app.core.init_db_once`
 
-- **기본 점수**
-  - 인용수, 트렌딩 점수, 최신성 점수
-- **태그 매칭**
-  - 사용자 관심 태그 ↔ 논문 태그 일치도
-- **사용자 레벨 가중치**
-  - 연구자: 인용수 비중↑
-  - 실무자: 최신성 비중↑
-- **사용자 행동 반영**
-  - 좋아요/저장한 논문 점수 증가
-- **제외/감점**
-  - 이미 본 논문 점수 감소
+5) 테이블 확인  
+   `C:\>docker exec -it pg psql -U postgres -d app -c "\dt"`
 
 ---
 
-## ⚠️ 주의사항 / 운영 팁
-- 실제 인용수는 **Semantic Scholar API 등 외부 연동**이 필요합니다. (현재는 데모 데이터 기반)
-- 프로덕션에서는 CORS를 `*`로 두지 말고 **허용 도메인 제한**을 권장합니다.
+## 🔧 환경 변수 (.env) 가이드 (권장)
+
+`.env`는 **커밋하지 말고** 로컬에서만 관리하세요.
+
+- 예시 키(프로젝트 상황에 맞게 채우기):
+  - `DATABASE_URL` (Postgres)
+  - `SECRET_KEY`
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_REDIRECT_URI`
+
+> 위 키 이름은 프로젝트 설정 코드에 따라 달라질 수 있습니다.  
+> 실제 사용 중인 키 이름을 `app/core/config.py`의 Settings에서 확인하세요.
 
 ---
 
-## 🤝 Contributing
-이슈/PR 환영합니다.
-- 기능 제안 → Issue
-- 버그 수정/기능 추가 → PR
+## 🧩 개발 팁
 
----
-
-## 📄 License
-프로젝트 라이선스는 레포의 `LICENSE` 파일을 따릅니다.
+- **경로/모듈 에러가 나면**
+  - 커맨드는 되도록 `C:\Gomguk-BE\backend`에서 실행
+  - PyCharm Interpreter가 `.venv`로 잡혀있는지 확인
+- **Postgres 포트**
+  - `-p 5433:5432`이므로, 호스트에서는 **5433 포트**로 접속합니다.

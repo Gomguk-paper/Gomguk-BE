@@ -48,7 +48,7 @@ def google_callback(code: str, session: SessionDep):
     if response.status_code != 200:
         raise HTTPException(
             status_code=400,
-            detail="Failed to obtain token from Google")
+            detail=f"Failed to obtain token: {response.status_code} {response.text}")
     token_json = response.json()
     raw_id_token = token_json.get("id_token")
     if not raw_id_token:

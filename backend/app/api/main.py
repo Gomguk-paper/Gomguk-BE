@@ -8,7 +8,7 @@ api_router.include_router(feed.router)
 api_router.include_router(mypage.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(search.router)
-api_router.include_router(oauth)
+api_router.include_router(oauth.router)
 
 
 # if settings.ENVIRONMENT == "local":

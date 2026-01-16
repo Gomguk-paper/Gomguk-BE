@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import EmailStr
+from pydantic import EmailStr, BaseModel
 from sqlalchemy import Column, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, ENUM as PGEnum
 from sqlmodel import Field, Relationship, SQLModel
@@ -242,3 +240,7 @@ class Folder(SQLModel, table=True):
 
     folder_papers: List[FolderPaper] = Relationship(back_populates="folder")
     papers: List[Paper] = Relationship(back_populates="folders", link_model=FolderPaper)
+
+class TokenPayload(BaseModel):
+    sub: str | None = None
+    exp: int | None = None
