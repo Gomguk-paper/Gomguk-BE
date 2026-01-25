@@ -223,8 +223,30 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      # API 포트 (코드에서 접근)
+      - "9000:9000"
+      # Console UI 포트 (브라우저 관리자 화면)
+      - "9001:9001"
+    environment:
+      # .env 파일에 설정하거나 기본값 사용
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
 
 volumes:
   pgdata:
   airflow-db-volume:
+  minio-data:
