@@ -12,7 +12,6 @@ class Settings(BaseSettings):
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     FRONTEND_HOST: str
-    ENVIRONMENT: Literal["local", "staging", "production"]
 
     def all_cors_origins(self) -> list[str]:
         return [self.FRONTEND_HOST]

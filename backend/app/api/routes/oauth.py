@@ -4,16 +4,16 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-from sqlmodel import select
-from sqlalchemy.exc import IntegrityError
 from starlette.responses import RedirectResponse
 
 from app.api.deps import SessionDep
 from app.core.config import settings
 from app.core.security import create_access_token
-from app.models import User, UserAuthIdentity, AuthProvider
+from app.core.enums import AuthProvider
+from app.models import User
+from app.crud import get_user_by_sub, create_user
 
-router = APIRouter(prefix="/oauth")
+router = APIRouter()
 
 GOOGLE_CLIENT_ID = settings.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = settings.GOOGLE_CLIENT_SECRET
@@ -44,14 +44,14 @@ def google_callback(code: str, session: SessionDep):
         "redirect_uri": GOOGLE_REDIRECT_URI,
         "grant_type": "authorization_code",
     }
-    response = requests.post(token_endpoint, data=data)
+    response = requests.post(token_endpoint, data=data, timeout=10)
     if response.status_code != 200:
         raise HTTPException(
             status_code=400,
             detail=f"Failed to obtain token: {response.status_code} {response.text}")
     token_json = response.json()
     raw_id_token = token_json.get("id_token")
-    if not raw_id_token:
+    if raw_id_token is None:
         raise HTTPException(status_code=400, detail="no id_token")
 
     #token -> sub 교환
@@ -62,47 +62,36 @@ def google_callback(code: str, session: SessionDep):
     )
     google_sub = payload["sub"]
     email = payload.get("email")
+    if email is None:
+        raise HTTPException(status_code=400, detail="No email from Google")
 
     #google_sub db 조회
-    identity = session.exec(
-        select(UserAuthIdentity).where(
-            UserAuthIdentity.provider == AuthProvider.google,
-            UserAuthIdentity.provider_user_id == google_sub,
-        )
-    ).first()
+    user = get_user_by_sub(
+        session = session,
+        provider = AuthProvider.google,
+        provider_sub = google_sub
+    )
 
     is_new_user = False
-    if identity:
-        user = identity.user
-    else: #user 생성
-        is_new_user = True
-
-        nickname = f"g_{google_sub[:10]}"
-        user = User(email=email, nickname=nickname)
-        session.add(user)
-        session.flush()
-
-        identity = UserAuthIdentity(
-            user_id=user.id,
-            provider=AuthProvider.google,
-            provider_user_id=google_sub,
-            email=email,
+    if user is None: #user 생성
+        created = create_user(
+            session = session,
+            provider = AuthProvider.google,
+            provider_sub = google_sub,
+            email = email,
+            nickname = f"g_{google_sub[:10]}"
         )
-        session.add(identity)
-
-        try:
-            session.commit()
-        except IntegrityError:
-            session.rollback()
-            identity = session.exec(
-                select(UserAuthIdentity).where(
-                    UserAuthIdentity.provider == AuthProvider.google,
-                    UserAuthIdentity.provider_user_id == google_sub,
-                )
-            ).first()
-            if not identity:
-                raise
-            user = identity.user
+        if created is not None:
+            user = created
+            is_new_user = True
+        else:
+            user = get_user_by_sub(
+                session = session,
+                provider=AuthProvider.google,
+                provider_sub=google_sub
+            )
+            if user is None:
+                raise HTTPException(status_code=409, detail="user create error")
             is_new_user = False
 
     token = create_access_token(
@@ -110,4 +99,5 @@ def google_callback(code: str, session: SessionDep):
         expires_delta=timedelta(minutes=60)
     )
 
+    #event 기록 추가해야됨 (기본적 api 개발 후 진행 예정)
     return {"access_token": token, "token_type": "bearer", "is_new_user": is_new_user}

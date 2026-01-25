@@ -1,3 +1,25 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Body, Request
 
-router = APIRouter(prefix="/mypage")
+from app.api.deps import SessionDep
+from app.models import *
+
+router = APIRouter()
+
+
+@router.get("")
+def mypage():
+    return None
+
+
+@router.get("/recent-papers")
+def recent_papers():
+    return None
+
+
+@router.get("/like-papers")
+def like_papers():
+    return None
+
+@router.get("/scrap-papers")
+def scrap_papers():
+    return None

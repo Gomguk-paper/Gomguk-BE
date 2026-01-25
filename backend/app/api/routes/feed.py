@@ -1,3 +1,7 @@
 from fastapi import APIRouter
 
-router = APIRouter(prefix="/feed")
+router = APIRouter()
+
+@router.get("/")
+def feed():
+    return {"Hello": "feed"}
