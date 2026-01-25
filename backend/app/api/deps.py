@@ -42,7 +42,7 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
         )
     user = session.get(User, token_data.sub)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
 

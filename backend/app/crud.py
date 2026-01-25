@@ -1,9 +1,9 @@
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from typing import Optional
 
-from app.models.user import User
+from app.models.user import User, UserPaperLike
 from app.models.paper import Paper
 from app.schemas.PaperRead import PaperRead
 from app.core.enums import AuthProvider
@@ -33,6 +33,7 @@ def create_user(
         session.rollback()
         return None
 
+
 def get_user_by_sub(
         session: SessionDep,
         provider: AuthProvider,
@@ -45,6 +46,7 @@ def get_user_by_sub(
         )
     ).first()
     return user
+
 
 def get_paper_by_id(
         session: SessionDep,
@@ -68,3 +70,18 @@ def get_paper_by_id(
         tags=[t.name for t in (paper.tags or [])],
     )
     return paper_read
+
+
+
+def add_userpaperlike(session: SessionDep, user: User, paper: Paper):
+    like = UserPaperLike(user_id=user.id, paper_id=paper.id)
+    session.add(like)
+    try:
+        session.commit()
+        return "ok"
+    except IntegrityError:
+        session.rollback()
+        return "exists"
+    except SQLAlchemyError:
+        session.rollback()
+        return "db_error"

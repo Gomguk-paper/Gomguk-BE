@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Body, Request
+from typing import Optional
 
-from app.api.deps import SessionDep
-from app.models import *
+from app.api.deps import SessionDep, CurrentUser
+from app.models.user import User
 
 router = APIRouter()
 
 
 @router.get("")
-def mypage():
-    return None
+def mypage(user: CurrentUser) -> User:
+    return user
 
 
 @router.get("/recent-papers")
