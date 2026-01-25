@@ -24,7 +24,7 @@ dependencies = [
     "passlib==1.7.4",
     "psycopg[binary]==3.3.2",
     "psycopg-binary==3.3.2",
-    "pyasn1==0.6.1",
+    "pyasn1==0.6.2",
     "pyasn1-modules==0.4.2",
     "pycparser==2.23",
     "pydantic==2.12.5",
