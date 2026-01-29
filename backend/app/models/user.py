@@ -9,7 +9,6 @@ from app.core.enums import AuthProvider
 
 if TYPE_CHECKING:
     from .paper import Paper
-    from .folder import Folder
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -37,6 +36,17 @@ class UserPaperView(SQLModel, table=True):
     paper: "Paper" = Relationship(back_populates="user_views")
 
 
+class UserPaperScrap(SQLModel, table=True):
+    __tablename__ = "user_paper_scraps"
+
+    user_id: int = Field(foreign_key="users.id", primary_key=True)
+    paper_id: int = Field(foreign_key="papers.id", primary_key=True)
+    created_at: datetime = Field(default_factory=utcnow, nullable=False)
+
+    user: "User" = Relationship(back_populates="paper_scraps")
+    paper: "Paper" = Relationship(back_populates="user_scraps")
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
     __table_args__ = (
@@ -55,6 +65,6 @@ class User(SQLModel, table=True):
         sa_column=Column(JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     )
 
-    folders: list["Folder"] = Relationship(back_populates="user")
     paper_likes: list["UserPaperLike"] = Relationship(back_populates="user")
     paper_views: list["UserPaperView"] = Relationship(back_populates="user")
+    paper_scraps: list["UserPaperScrap"] = Relationship(back_populates="user")

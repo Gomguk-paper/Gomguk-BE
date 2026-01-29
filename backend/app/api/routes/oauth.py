@@ -99,5 +99,4 @@ def google_callback(code: str, session: SessionDep):
         expires_delta=timedelta(minutes=60)
     )
 
-    #event 기록 추가해야됨 (기본적 api 개발 후 진행 예정)
     return {"access_token": token, "token_type": "bearer", "is_new_user": is_new_user}

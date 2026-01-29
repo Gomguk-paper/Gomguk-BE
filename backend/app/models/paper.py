@@ -6,11 +6,9 @@ from sqlalchemy.dialects.postgresql import ARRAY, ENUM as PGEnum
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.enums import SummaryStyle, Site
-from app.models.folder import FolderPaper
 
 if TYPE_CHECKING:
-    from .folder import Folder
-    from .user import UserPaperLike, UserPaperView
+    from .user import UserPaperLike, UserPaperView, UserPaperScrap
 
 
 def utcnow() -> datetime:
@@ -57,10 +55,7 @@ class Paper(SQLModel, table=True):
     tags: list["Tag"] = Relationship(back_populates="papers", link_model=PaperTag)
     user_likes: list["UserPaperLike"] = Relationship(back_populates="paper")
     user_views: list["UserPaperView"] = Relationship(back_populates="paper")
-    folder_papers: list["FolderPaper"] = Relationship(back_populates="paper")
-    folders: list["Folder"] = Relationship(
-        back_populates="papers", link_model=FolderPaper
-    )
+    user_scraps: list["UserPaperScrap"] = Relationship(back_populates="paper")
 
 
 class PaperSummary(SQLModel, table=True):

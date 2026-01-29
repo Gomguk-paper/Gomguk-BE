@@ -42,3 +42,7 @@ def like_paper(paper_id: int, session: SessionDep, user: CurrentUser):
     if result == "db_error":
         raise HTTPException(status_code=503, detail="Database temporarily unavailable")
     return None
+
+# @router.delete("/{paper_id}/like")
+# @router.put("/{paper_id}/scrap")
+# @router.delete("/{paper_id}/scrap")
