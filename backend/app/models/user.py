@@ -5,8 +5,6 @@ from sqlalchemy import Column, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.core.enums import AuthProvider
-
 if TYPE_CHECKING:
     from .paper import Paper
 
@@ -54,7 +52,7 @@ class User(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    provider: Optional[AuthProvider] = Field(default=None, index=True)
+    provider: Optional[str] = Field(default=None, index=True)
     provider_sub: str = Field(default=None, nullable=False, index=True)
     email: str = Field(default=None, unique=True)
     nickname: str = Field(unique=True, nullable=False)
