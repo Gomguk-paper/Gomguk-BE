@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from app.api.deps import SessionDep
-from app.models.tag import Tag  # 프로젝트 경로에 맞게 조정
+from app.models.paper import Tag  # 프로젝트 경로에 맞게 조정
 
 router = APIRouter()
 

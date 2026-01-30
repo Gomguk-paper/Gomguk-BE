@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str
     SECRET_KEY: str
     ALGORITHM: str
+    BACKEND_PUBLIC_URL: str
 
 
 settings = Settings()

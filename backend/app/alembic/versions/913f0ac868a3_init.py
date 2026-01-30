@@ -1,8 +1,8 @@
 """init
 
-Revision ID: e479eaf2e4c3
+Revision ID: 913f0ac868a3
 Revises: 
-Create Date: 2026-01-24 23:31:00.434385
+Create Date: 2026-01-31 04:00:41.202256
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'e479eaf2e4c3'
+revision = '913f0ac868a3'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -24,7 +24,8 @@ def upgrade():
     sa.Column('title', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('short', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('authors', postgresql.ARRAY(sa.Text()), server_default=sa.text("'{}'::text[]"), nullable=False),
-    sa.Column('published_at', sa.Date(), nullable=True),
+    sa.Column('published_at', sa.DateTime(), nullable=False),
+    sa.Column('image_url', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('raw_url', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('source', postgresql.ENUM('arxiv', 'github', name='site'), nullable=False),
@@ -33,21 +34,24 @@ def upgrade():
     op.create_table('tags',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('description', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('count', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_tags_name'), 'tags', ['name'], unique=False)
     op.create_table('users',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('provider', sa.Enum('google', 'github', name='authprovider'), nullable=True),
+    sa.Column('provider', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('provider_sub', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('email', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('nickname', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('profile_image', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
-    sa.UniqueConstraint('nickname'),
+    sa.UniqueConstraint('name'),
     sa.UniqueConstraint('provider', 'provider_sub', name='uq_provider_user')
     )
     op.create_index(op.f('ix_users_provider'), 'users', ['provider'], unique=False)
@@ -64,18 +68,6 @@ def upgrade():
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_events_user_id'), 'events', ['user_id'], unique=False)
-    op.create_table('folders',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('description', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('user_id', 'name', name='uq_folder_user_name')
-    )
-    op.create_index(op.f('ix_folders_user_id'), 'folders', ['user_id'], unique=False)
     op.create_table('paper_summaries',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('paper_id', sa.Integer(), nullable=False),
@@ -101,6 +93,14 @@ def upgrade():
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('user_id', 'paper_id')
     )
+    op.create_table('user_paper_scraps',
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('paper_id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('user_id', 'paper_id')
+    )
     op.create_table('user_paper_views',
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('paper_id', sa.Integer(), nullable=False),
@@ -109,32 +109,23 @@ def upgrade():
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('user_id', 'paper_id')
     )
-    op.create_table('folder_papers',
-    sa.Column('folder_id', sa.Integer(), nullable=False),
-    sa.Column('paper_id', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['folder_id'], ['folders.id'], ),
-    sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
-    sa.PrimaryKeyConstraint('folder_id', 'paper_id')
-    )
     # ### end Alembic commands ###
 
 
 def downgrade():
     # ### commands auto generated by Alembic - please adjust! ###
-    op.drop_table('folder_papers')
     op.drop_table('user_paper_views')
+    op.drop_table('user_paper_scraps')
     op.drop_table('user_paper_likes')
     op.drop_table('paper_tags')
     op.drop_index(op.f('ix_paper_summaries_paper_id'), table_name='paper_summaries')
     op.drop_table('paper_summaries')
-    op.drop_index(op.f('ix_folders_user_id'), table_name='folders')
-    op.drop_table('folders')
     op.drop_index(op.f('ix_events_user_id'), table_name='events')
     op.drop_table('events')
     op.drop_index(op.f('ix_users_provider_sub'), table_name='users')
     op.drop_index(op.f('ix_users_provider'), table_name='users')
     op.drop_table('users')
+    op.drop_index(op.f('ix_tags_name'), table_name='tags')
     op.drop_table('tags')
     op.drop_table('papers')
     # ### end Alembic commands ###

@@ -79,7 +79,9 @@ class Tag(SQLModel, table=True):
     __tablename__ = "tags"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(nullable=False)
+    name: str = Field(nullable=False, index=True)
+    description: str = Field(default="", nullable=False)
+    count: int = Field(default=0, nullable=False)
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
 
     paper_tags: list["PaperTag"] = Relationship(back_populates="tag")

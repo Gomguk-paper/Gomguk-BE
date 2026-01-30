@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from typing import Annotated, Optional
+from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from sqlmodel import Session
@@ -15,11 +15,8 @@ from app.core.db import engine
 from app.models import User
 from app.schemas.token_payload import TokenPayload
 
-
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl="/token",
-    auto_error=False,
-)
+# Swagger에서 "Bearer token" 입력칸이 뜨는 스키마
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -28,7 +25,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 SessionDep = Annotated[Session, Depends(get_db)]
-TokenDep = Annotated[Optional[str], Depends(reusable_oauth2)]
+CredDep = Annotated[HTTPAuthorizationCredentials | None, Security(bearer_scheme)]
 
 
 def _auth_required() -> None:
@@ -39,20 +36,28 @@ def _auth_required() -> None:
     )
 
 
-def get_current_user(session: SessionDep, token: TokenDep) -> User:
-    # 토큰 없음 -> 401 AUTH_REQUIRED
-    if not token:
+def get_current_user(session: SessionDep, credentials: CredDep) -> User:
+    # Authorization 헤더 자체가 없음
+    if credentials is None or not credentials.credentials:
         _auth_required()
 
-    # 토큰 검증 실패(만료/위조/서명불일치 등) -> 401 AUTH_REQUIRED (명세: 없음/만료/유효하지 않음)
+    token = credentials.credentials
+
+    # 토큰 검증 실패(만료/위조/서명불일치 등)
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         token_data = TokenPayload(**payload)
     except (InvalidTokenError, ValidationError):
         _auth_required()
 
-    # 사용자 없음 -> 401 AUTH_REQUIRED (로그인 상태가 아니라고 취급)
-    user = session.get(User, token_data.sub)
+    # 사용자 없음 -> 401 AUTH_REQUIRED
+    # token_data.sub 가 "1" 같은 문자열이면 int로 바꿔서 get 해야 안전함
+    try:
+        user_id = int(token_data.sub)
+    except Exception:
+        _auth_required()
+
+    user = session.get(User, user_id)
     if not user:
         _auth_required()
 

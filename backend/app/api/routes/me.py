@@ -21,7 +21,7 @@ class MeResponse(BaseModel):
     id: int
     provider: str
     email: str
-    nickname: str
+    name: str
     profile_image: Optional[str] = None
     meta: dict[str, Any] = {}
 
@@ -83,7 +83,7 @@ def me(user: CurrentUser):
         id=user.id,
         provider=user.provider,
         email=user.email,
-        nickname=user.name,
+        name=user.name,
         profile_image=user.profile_image,  # DB에 절대 URL 저장 전제
         meta=user.meta or {},
     )
