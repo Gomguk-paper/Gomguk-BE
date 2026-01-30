@@ -7,9 +7,9 @@ class AuthProvider(str, Enum):
 
 
 class SummaryStyle(str, Enum):
-    default = "default"
-    short = "short"
+    plain = "plain"
     detailed = "detailed"
+    dc = "dc"
 
 
 class Site(str, Enum):
@@ -24,5 +24,5 @@ class EventType(str, Enum):
     save = "save"
     unsave = "unsave"
     search = "search"
-    # create_user = "create_user"
-    # login = "login"
+    create_user = "create_user"
+    login = "login"

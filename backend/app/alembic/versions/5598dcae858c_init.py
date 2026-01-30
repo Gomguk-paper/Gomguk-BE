@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 913f0ac868a3
+Revision ID: 5598dcae858c
 Revises: 
-Create Date: 2026-01-31 04:00:41.202256
+Create Date: 2026-01-31 05:24:43.302258
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '913f0ac868a3'
+revision = '5598dcae858c'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -60,7 +60,7 @@ def upgrade():
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('paper_id', sa.Integer(), nullable=True),
-    sa.Column('event_type', postgresql.ENUM('view', 'like', 'unlike', 'save', 'unsave', 'search', name='event_type'), nullable=False),
+    sa.Column('event_type', postgresql.ENUM('view', 'like', 'unlike', 'save', 'unsave', 'search', 'create_user', 'login', name='event_type'), nullable=False),
     sa.Column('occurred_at', sa.DateTime(), nullable=False),
     sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
     sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
@@ -72,7 +72,7 @@ def upgrade():
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('paper_id', sa.Integer(), nullable=False),
     sa.Column('body', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('style', postgresql.ENUM('default', 'short', 'detailed', name='summary_style'), nullable=False),
+    sa.Column('style', postgresql.ENUM('plain', 'detailed', 'dc', name='summary_style'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
     sa.PrimaryKeyConstraint('id')

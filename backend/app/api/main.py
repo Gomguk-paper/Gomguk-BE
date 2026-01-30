@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from fastapi.responses import HTMLResponse
 
-from app.api.routes import paper, summary, tags, oauth, me, auth
+from app.api.routes import paper, summary, tags, oauth, me, auth, add
 
 api_router = APIRouter(prefix="/api")
 
@@ -13,6 +13,7 @@ api_router.include_router(tags.router, prefix="/tags", tags=["tags"])
 api_router.include_router(oauth.router, prefix="/oauth", tags=["oauth"])
 api_router.include_router(me.router, prefix="/me", tags=["me"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(add.router, prefix="/add", tags=["add"])
 
 
 @api_router.get("/dev/redirect", response_class=HTMLResponse)
