@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from app.api.deps import SessionDep, CurrentUser
+from app.api.deps import SessionDep, CurrentUser, CurrentUserOptional
 from app.core.enums import Site
 from app.models.paper import Paper, PaperTag
 from app.models.user import UserPaperLike, UserPaperScrap
@@ -107,7 +107,7 @@ def _to_paper_out(
 # Routes
 # =========================
 @router.get(
-    "/paper",
+    "/",
     summary="논문 목록 조회",
     response_model=PagedPapersResponse,
     responses={
@@ -117,7 +117,7 @@ def _to_paper_out(
 )
 def list_papers(
     session: SessionDep,
-    user: CurrentUser,
+    user: CurrentUserOptional,
     q: Optional[str] = Query(None, description="제목 검색 (부분 일치)"),
     tag: Optional[int] = Query(None, description="태그 id 필터"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
@@ -162,7 +162,7 @@ def list_papers(
 
 
 @router.get(
-    "/paper/{paper_id}",
+    "/{paper_id}",
     summary="논문 상세 조회 (내 상태 포함)",
     response_model=PaperOut,
     responses={
@@ -173,20 +173,24 @@ def list_papers(
 )
 def get_paper_detail(
     session: SessionDep,
-    user: CurrentUser,
+    user: CurrentUserOptional,
     paper_id: int,
 ):
     paper = _get_paper_or_404(session, paper_id)
 
-    is_liked = session.exec(
-        select(UserPaperLike)
-        .where(UserPaperLike.user_id == user.id, UserPaperLike.paper_id == paper_id)
-    ).first() is not None
+    is_liked = False
+    is_scrapped = False
 
-    is_scrapped = session.exec(
-        select(UserPaperScrap)
-        .where(UserPaperScrap.user_id == user.id, UserPaperScrap.paper_id == paper_id)
-    ).first() is not None
+    if user:
+        is_liked = session.exec(
+            select(UserPaperLike)
+            .where(UserPaperLike.user_id == user.id, UserPaperLike.paper_id == paper_id)
+        ).first() is not None
+
+        is_scrapped = session.exec(
+            select(UserPaperScrap)
+            .where(UserPaperScrap.user_id == user.id, UserPaperScrap.paper_id == paper_id)
+        ).first() is not None
 
     return _to_paper_out(
         paper,
@@ -196,7 +200,7 @@ def get_paper_detail(
 
 
 @router.put(
-    "/paper/{paper_id}/like",
+    "/{paper_id}/like",
     summary="좋아요 추가 (멱등)",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
@@ -223,7 +227,7 @@ def like_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
 
 @router.delete(
-    "/paper/{paper_id}/like",
+    "/{paper_id}/like",
     summary="좋아요 취소",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
@@ -251,7 +255,7 @@ def unlike_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
 
 @router.put(
-    "/paper/{paper_id}/scrap",
+    "/{paper_id}/scrap",
     summary="스크랩 추가 (멱등)",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
@@ -278,7 +282,7 @@ def scrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
 
 @router.delete(
-    "/paper/{paper_id}/scrap",
+    "/{paper_id}/scrap",
     summary="스크랩 취소",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={

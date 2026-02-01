@@ -63,5 +63,21 @@ def get_current_user(session: SessionDep, credentials: CredDep) -> User:
 
     return user
 
+def get_current_user_optional(session: SessionDep, credentials: CredDep) -> User | None:
+    if credentials is None or not credentials.credentials:
+        return None
+
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        token_data = TokenPayload(**payload)
+        user_id = int(token_data.sub)
+        user = session.get(User, user_id)
+        return user
+    except Exception:
+        # 인증 실패 시 조용히 None 반환
+        return None
+
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUserOptional = Annotated[User | None, Depends(get_current_user_optional)]

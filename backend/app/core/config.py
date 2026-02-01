@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
 
     def all_cors_origins(self) -> list[str]:
-        return [self.FRONTEND_HOST]
+        return [self.FRONTEND_HOST, "http://localhost:8080"]
 
     PROJECT_NAME: str = "Gomguk"
     DATABASE_URL: str = "postgresql://postgres:password@localhost/gomguk-db"
