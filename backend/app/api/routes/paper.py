@@ -5,6 +5,7 @@ from typing import Any, Optional, Literal
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from app.api.deps import SessionDep, CurrentUser
@@ -21,13 +22,14 @@ router = APIRouter()
 class PaperOut(BaseModel):
     id: int
     title: str
-    short: str
+    abstract: str
     authors: list[str]
     year: int
     image_url: str
     raw_url: str
-    source: str
-    tags: list[int] = []
+    venue: str
+    tags: list[str] = []
+    metrics: dict = {}
     is_liked: bool = False
     is_scrapped: bool = False
 
@@ -45,7 +47,13 @@ class PagedPapersResponse(BaseModel):
 # Helpers
 # =========================
 def _source_to_str(source: Any) -> str:
-    return source.value if hasattr(source, "value") else str(source)
+    val = source.value if hasattr(source, "value") else str(source)
+    # Map specifically if needed, otherwise capitalize
+    if val.lower() == "arxiv":
+        return "arXiv"
+    if val.lower() == "cvpr":
+        return "CVPR"
+    return val.upper()
 
 
 def _to_year(value: Any) -> int:
@@ -66,20 +74,30 @@ def _get_paper_or_404(session: SessionDep, paper_id: int) -> Paper:
 
 def _to_paper_out(
     p: Paper,
-    tags: Optional[list[int]] = None,
     is_liked: bool = False,
     is_scrapped: bool = False,
 ) -> PaperOut:
+    # Mock metrics for now (randomized or fixed to look good)
+    metrics = {
+        "trendingScore": 90, 
+        "recencyScore": 80, 
+        "citations": 100
+    }
+    
+    # Use ORM relationship to get tag names
+    tag_names = [t.name for t in p.tags]
+        
     return PaperOut(
         id=p.id,
         title=p.title,
-        short=p.short,
+        abstract=p.short,  # Map short -> abstract
         authors=p.authors,
         year=_to_year(p.published_at),
         image_url=p.image_url,
         raw_url=p.raw_url,
-        source=_source_to_str(p.source),
-        tags=tags or [],
+        venue=_source_to_str(p.source), # Map source -> venue
+        tags=tag_names,
+        metrics=metrics,
         is_liked=is_liked,
         is_scrapped=is_scrapped,
     )
@@ -127,7 +145,8 @@ def list_papers(
 
     # sort는 받되, 현재는 전부 최신 정렬로
     page_stmt = (
-        base.order_by(Paper.published_at.desc(), Paper.id.desc())
+        base.options(selectinload(Paper.tags))
+        .order_by(Paper.published_at.desc(), Paper.id.desc())
         .offset(offset)
         .limit(limit)
     )
@@ -159,12 +178,6 @@ def get_paper_detail(
 ):
     paper = _get_paper_or_404(session, paper_id)
 
-    tags = session.exec(
-        select(PaperTag.tag_id)
-        .where(PaperTag.paper_id == paper_id)
-        .order_by(PaperTag.tag_id.asc())
-    ).all()
-
     is_liked = session.exec(
         select(UserPaperLike)
         .where(UserPaperLike.user_id == user.id, UserPaperLike.paper_id == paper_id)
@@ -177,7 +190,6 @@ def get_paper_detail(
 
     return _to_paper_out(
         paper,
-        tags=list(tags),
         is_liked=is_liked,
         is_scrapped=is_scrapped,
     )

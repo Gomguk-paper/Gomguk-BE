@@ -10,20 +10,20 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    ACCESS_TOKEN_EXPIRE_MINUTES: int
-    FRONTEND_HOST: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    FRONTEND_HOST: str = "http://localhost:5173"
 
     def all_cors_origins(self) -> list[str]:
         return [self.FRONTEND_HOST]
 
-    PROJECT_NAME: str
-    DATABASE_URL: str
-    GOOGLE_CLIENT_ID: str
-    GOOGLE_CLIENT_SECRET: str
-    GOOGLE_REDIRECT_URI: str
-    SECRET_KEY: str
-    ALGORITHM: str
-    BACKEND_PUBLIC_URL: str
+    PROJECT_NAME: str = "Gomguk"
+    DATABASE_URL: str = "postgresql://postgres:password@localhost/gomguk-db"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = ""
+    SECRET_KEY: str = "secret"
+    ALGORITHM: str = "HS256"
+    BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
 
 settings = Settings()
