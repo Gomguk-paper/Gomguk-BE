@@ -36,7 +36,9 @@ class AddPaperBody(BaseModel):
 class AddSummaryBody(BaseModel):
     paper_id: int
     style: Optional[str] = None  # 기본 plain
-    body: str
+    hook: str
+    points: list[str] = PydField(default_factory=list)
+    detailed: str
 
 
 class AddPaperTagsBody(BaseModel):
@@ -70,7 +72,9 @@ class SummaryResponse(BaseModel):
     id: int
     paper_id: int
     style: str
-    body: str
+    hook: str
+    points: list[str]
+    detailed: str
     created_at: datetime
 
 
@@ -263,7 +267,9 @@ def add_summary(session: SessionDep, body: AddSummaryBody):
     summary = PaperSummary(
         paper_id=body.paper_id,
         style=style_enum,
-        body=body.body,
+        hook=body.hook,
+        points=body.points,
+        detailed=body.detailed,
     )
     session.add(summary)
     session.commit()
@@ -273,7 +279,9 @@ def add_summary(session: SessionDep, body: AddSummaryBody):
         id=summary.id,
         paper_id=summary.paper_id,
         style=_enum_to_str(summary.style),
-        body=summary.body,
+        hook=summary.hook,
+        points=summary.points or [],
+        detailed=summary.detailed,
         created_at=summary.created_at,
     )
 
