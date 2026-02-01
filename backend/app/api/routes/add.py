@@ -11,7 +11,7 @@ from app.api.deps import SessionDep
 from app.core.enums import Site, SummaryStyle
 from app.models.paper import Paper, Tag, PaperTag, PaperSummary
 
-router = APIRouter(prefix="/add")
+router = APIRouter()
 
 
 # =========================
