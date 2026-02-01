@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Optional, Literal
 
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
@@ -28,7 +29,7 @@ class PaperOut(BaseModel):
     image_url: str
     raw_url: str
     source: str
-    tags: list[int] = []
+    tags: list[int] = Field(default_factory=list)
     is_liked: bool = False
     is_scrapped: bool = False
 
@@ -49,13 +50,8 @@ def _source_to_str(source: Any) -> str:
     return source.value if hasattr(source, "value") else str(source)
 
 
-def _to_year(value: Any) -> int:
-    # published_at이 int/date/datetime 어떤 형태든 연도로 맞춤
-    if isinstance(value, int):
-        return value
-    if hasattr(value, "year"):
-        return int(value.year)
-    return int(value)
+def _to_year(published_at: datetime) -> int:
+    return published_at.year
 
 
 def _get_paper_or_404(session: SessionDep, paper_id: int) -> Paper:
@@ -345,3 +341,71 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     session.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/feed",
+    summary="메인 화면 피드 조회 (추천 시스템용)",
+    response_model=PagedPapersResponse,
+    responses={
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def get_feed(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    page_stmt = (
+        select(Paper)
+        .order_by(Paper.published_at.desc(), Paper.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    papers = session.exec(page_stmt).all()
+
+    total = session.exec(select(func.count()).select_from(Paper)).one()
+
+    paper_ids = [p.id for p in papers]
+    if not paper_ids:
+        return PagedPapersResponse(items=[], count=total)
+
+    # tags 배치 조회
+    tag_rows = session.exec(
+        select(PaperTag.paper_id, PaperTag.tag_id)
+        .where(PaperTag.paper_id.in_(paper_ids))
+    ).all()
+    tags_map: dict[int, list[int]] = {}
+    for pid, tid in tag_rows:
+        tags_map.setdefault(pid, []).append(tid)
+
+    # liked/scrapped 배치 조회
+    liked_ids = set(
+        session.exec(
+            select(UserPaperLike.paper_id)
+            .where(UserPaperLike.user_id == user.id, UserPaperLike.paper_id.in_(paper_ids))
+        ).all()
+    )
+    scrapped_ids = set(
+        session.exec(
+            select(UserPaperScrap.paper_id)
+            .where(UserPaperScrap.user_id == user.id, UserPaperScrap.paper_id.in_(paper_ids))
+        ).all()
+    )
+
+    return PagedPapersResponse(
+        items=[
+            PaperItem(
+                paper=_to_paper_out(
+                    p,
+                    tags=sorted(tags_map.get(p.id, [])),
+                    is_liked=(p.id in liked_ids),
+                    is_scrapped=(p.id in scrapped_ids),
+                )
+            )
+            for p in papers
+        ],
+        count=total,
+    )

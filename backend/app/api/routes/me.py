@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from datetime import datetime
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
@@ -23,7 +24,7 @@ class MeResponse(BaseModel):
     email: str
     name: str
     profile_image: Optional[str] = None
-    meta: dict[str, Any] = {}
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class PaperOut(BaseModel):
@@ -53,13 +54,17 @@ def _source_to_str(source: Any) -> str:
     return source.value if hasattr(source, "value") else str(source)
 
 
+def _to_year(published_at: datetime) -> int:
+    return published_at.year
+
+
 def _to_paper_out(p: Paper) -> PaperOut:
     return PaperOut(
         id=p.id,
         title=p.title,
         short=p.short,
         authors=p.authors,
-        year=p.published_at,       # ✅ 크롤링 시 시간 포맷 확인 필요
+        year=_to_year(p.published_at),
         image_url=p.image_url,
         raw_url=p.raw_url,
         source=_source_to_str(p.source),
