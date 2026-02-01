@@ -74,7 +74,7 @@ def calculate_quotas(conn, config):
     categories = config['categories']
     query = """
     SELECT primary_category as category, COUNT(*) as count
-    FROM papers p
+    FROM paper_pool p
     WHERE p.citation_score IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM paper_evaluation_log log WHERE log.paper_id = p.id)
       AND p.primary_category IN %s
@@ -101,7 +101,7 @@ def fetch_candidates(conn, category, quota):
     cursor = conn.cursor()
     query = """
     SELECT id, title, summary as abstract, extract(year from published_at) as year
-    FROM papers p
+    FROM paper_pool p
     WHERE p.primary_category = %s
       AND NOT EXISTS (SELECT 1 FROM paper_evaluation_log log WHERE log.paper_id = p.id)
       AND p.citation_score IS NOT NULL

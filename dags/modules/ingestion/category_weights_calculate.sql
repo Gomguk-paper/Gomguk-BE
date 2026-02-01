@@ -8,7 +8,7 @@ WITH split_data AS (
     SELECT
         jsonb_array_elements_text(categories) as cat,
         COALESCE(influential_citation_count, 0) as cit
-    FROM papers
+    FROM paper_pool
     WHERE categories IS NOT NULL
       AND jsonb_typeof(categories) = 'array'
 ),
@@ -25,7 +25,7 @@ cat_stats AS (
 global_stat AS (
     -- 전체 논문 로그 평균 (기준점)
     SELECT AVG(LN(COALESCE(influential_citation_count, 0) + 1)) as global_log_avg
-    FROM papers
+    FROM paper_pool
 )
 SELECT
     s.cat,
