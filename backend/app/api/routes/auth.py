@@ -4,11 +4,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import jwt
-from fastapi import APIRouter, Cookie, HTTPException, Response, status
+from starlette.responses import Response
+from fastapi import APIRouter, Cookie, HTTPException, status
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import BaseModel, ValidationError
 
+from app.api.deps import SessionDep
 from app.core.config import settings
+from app.core.enums import EventType
+from app.crud.event import create_event
 from app.schemas.token_payload import TokenPayload
 
 router = APIRouter()
@@ -16,7 +20,6 @@ router = APIRouter()
 # =========================
 # Constants
 # =========================
-# 명세서: expires_in = 900 (15분)
 ACCESS_TOKEN_EXPIRES_IN = 900
 
 
@@ -42,8 +45,6 @@ class RefreshResponse(BaseModel):
 # Helpers
 # =========================
 def _error(status_code: int, code: str, message: str) -> HTTPException:
-    # 명세서 에러 포맷을 detail에 담아서 반환
-    # (프로젝트에 전역 exception handler가 있으면 여기 구조 그대로 응답으로 내보내면 됨)
     return HTTPException(
         status_code=status_code,
         detail={"error": {"code": code, "message": message}},
@@ -90,11 +91,21 @@ def _decode_refresh_token(refresh_token: str) -> TokenPayload:
 @router.post(
     "/refresh",
     response_model=RefreshResponse,
-    responses={
-        401: {"model": ErrorResponse},
-    },
+    status_code=status.HTTP_200_OK,
+    summary="Access token 재발급",
+    description=(
+        "refresh_token(HttpOnly 쿠키)로 access token(JWT)을 재발급합니다.\n\n"
+        "- Auth: Cookie `refresh_token`\n"
+        "- Response: 200 `{access_token, token_type, expires_in}`\n"
+        "- Errors:\n"
+        "  - 401 `AUTH_REQUIRED` (쿠키 없음)\n"
+        "  - 401 `INVALID_REFRESH` (위조/서명 불일치 등)\n"
+        "  - 401 `REFRESH_EXPIRED` (만료)\n"
+        "  - 500"
+    ),
 )
 def refresh_access_token(
+    session: SessionDep,
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> RefreshResponse:
     """
@@ -117,12 +128,30 @@ def refresh_access_token(
     token_data = _decode_refresh_token(refresh_token)
     access_token = _issue_access_token(token_data.sub)
 
+    user_id = int(token_data.sub)
+    create_event(
+        session,
+        user_id=user_id,
+        event_type=EventType.refresh_token,
+        meta={"source": "auth_refresh"},
+    )
+    session.commit()
     return RefreshResponse(access_token=access_token)
 
 
-from starlette.responses import Response  # 파일 상단 import 추가
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="로그아웃",
+    description=(
+        "로그아웃 처리: refresh_token 쿠키를 삭제합니다.\n\n"
+        "- Auth: Cookie `refresh_token` (있으면 무효화/삭제, 없어도 성공 처리)\n"
+        "- Response: 204\n"
+        "  - Set-Cookie: `refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=None`\n"
+        "- Errors:\n"
+        "  - 500"
+    ),
+)
 def logout(
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> Response:

@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 5598dcae858c
+Revision ID: 72b70c3e1103
 Revises: 
-Create Date: 2026-01-31 05:24:43.302258
+Create Date: 2026-02-01 23:05:29.970581
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '5598dcae858c'
+revision = '72b70c3e1103'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -59,19 +59,20 @@ def upgrade():
     op.create_table('events',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
-    sa.Column('paper_id', sa.Integer(), nullable=True),
-    sa.Column('event_type', postgresql.ENUM('view', 'like', 'unlike', 'save', 'unsave', 'search', 'create_user', 'login', name='event_type'), nullable=False),
+    sa.Column('event_type', sa.Text(), nullable=False),
     sa.Column('occurred_at', sa.DateTime(), nullable=False),
     sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
-    sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_events_event_type'), 'events', ['event_type'], unique=False)
     op.create_index(op.f('ix_events_user_id'), 'events', ['user_id'], unique=False)
     op.create_table('paper_summaries',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('paper_id', sa.Integer(), nullable=False),
-    sa.Column('body', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('hook', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('points', postgresql.ARRAY(sa.Text()), server_default=sa.text("'{}'::text[]"), nullable=False),
+    sa.Column('detailed', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('style', postgresql.ENUM('plain', 'detailed', 'dc', name='summary_style'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['paper_id'], ['papers.id'], ),
@@ -121,6 +122,7 @@ def downgrade():
     op.drop_index(op.f('ix_paper_summaries_paper_id'), table_name='paper_summaries')
     op.drop_table('paper_summaries')
     op.drop_index(op.f('ix_events_user_id'), table_name='events')
+    op.drop_index(op.f('ix_events_event_type'), table_name='events')
     op.drop_table('events')
     op.drop_index(op.f('ix_users_provider_sub'), table_name='users')
     op.drop_index(op.f('ix_users_provider'), table_name='users')
