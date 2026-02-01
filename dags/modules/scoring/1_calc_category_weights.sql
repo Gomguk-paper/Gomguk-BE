@@ -3,13 +3,13 @@ TRUNCATE TABLE category_weights;
 INSERT INTO category_weights (category_code, paper_count, avg_citation, weight)
 WITH global_stat AS (
     SELECT AVG(LN(COALESCE(influential_citation_count, 0) + 1)) as global_log_avg
-    FROM papers
+    FROM paper_pool
 ),
 split_data AS (
     SELECT
         jsonb_array_elements_text(categories) as cat,
         COALESCE(influential_citation_count, 0) as cit
-    FROM papers
+    FROM paper_pool
     WHERE categories IS NOT NULL
       AND jsonb_typeof(categories) = 'array'
 ),

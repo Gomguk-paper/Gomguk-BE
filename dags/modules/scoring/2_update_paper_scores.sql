@@ -1,4 +1,4 @@
-UPDATE papers p
+UPDATE paper_pool p
 SET citation_score = (
     (LN(COALESCE(p.influential_citation_count, 0) + 1) /
      SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM p.published_at) + 8)))

@@ -1,4 +1,4 @@
-UPDATE papers p
+UPDATE paper_pool p
 SET citation_score = (
     -- 기본 점수: 로그 인용수 / 시간의 제곱근(SQRT)
     (LN(COALESCE(p.influential_citation_count, 0) + 1) /
