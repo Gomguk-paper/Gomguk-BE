@@ -75,6 +75,8 @@ services:
     command: api-server
     ports:
       - "8080:8080"
+    networks:
+      - proxy-net
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
       interval: 30s
@@ -233,6 +235,8 @@ services:
       - "9000:9000"
       # Console UI 포트 (브라우저 관리자 화면)
       - "9001:9001"
+    networks:
+      - proxy-net
     environment:
       # .env 파일에 설정하거나 기본값 사용
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -246,6 +250,10 @@ services:
       timeout: 20s
       retries: 3
 
+
+networks:
+  proxy-net:
+    external: true
 
 volumes:
   pgdata:
