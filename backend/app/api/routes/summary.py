@@ -60,7 +60,7 @@ def _parse_summary_style(style: str) -> SummaryStyle:
 )
 def get_summary(
     session: SessionDep,
-    user: CurrentUser,  # ✅ 로그인 필요(명세)
+    user: CurrentUser,
     paper_id: int,
     style: str = Query("plain"),
 ):

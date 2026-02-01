@@ -1,5 +1,5 @@
 # from __future__ import annotations
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 from sqlalchemy import Column, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM as PGEnum
@@ -63,7 +63,16 @@ class PaperSummary(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     paper_id: int = Field(foreign_key="papers.id", index=True, nullable=False)
-    body: str = Field(nullable=False)
+    hook: str = Field(nullable=False)
+    points: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            ARRAY(Text),
+            nullable=False,
+            server_default=text("'{}'::text[]")
+        ),
+    )
+    detailed: str = Field(nullable=False)
     style: SummaryStyle = Field(
         sa_column=Column(
             PGEnum(SummaryStyle, name="summary_style", create_type=False),

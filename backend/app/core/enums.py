@@ -26,3 +26,4 @@ class EventType(str, Enum):
     search = "search"
     create_user = "create_user"
     login = "login"
+    refresh_token = "refresh_token"

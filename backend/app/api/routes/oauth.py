@@ -14,8 +14,9 @@ from google.auth.transport import requests as google_requests
 
 from app.api.deps import SessionDep
 from app.core.config import settings
-from app.core.enums import AuthProvider
-from app.crud import get_user_by_sub, create_user
+from app.core.enums import AuthProvider, EventType
+from app.crud.user import get_user_by_sub, create_user
+from app.crud.event import create_event
 
 router = APIRouter()
 
@@ -283,9 +284,6 @@ async def oauth_callback(
         provider_enum = AuthProvider.github
         nick_prefix = "gh_"
 
-    # -------------------------
-    # CRUD (네가 구현)
-    # -------------------------
     user = get_user_by_sub(
         session=session,
         provider=provider_enum,
@@ -332,7 +330,7 @@ async def oauth_callback(
     # state 1회용 삭제
     resp.delete_cookie(key=STATE_COOKIE_KEY, path="/api/oauth")
 
-    # refresh는 영속 쿠키 (API 요청에만 붙게 /api)
+    # refresh는 영속 쿠키
     resp.set_cookie(
         key=REFRESH_COOKIE_KEY,
         value=refresh_token,
@@ -342,4 +340,20 @@ async def oauth_callback(
         samesite="lax",
         path="/api",
     )
+
+    if is_new_user:
+        create_event(
+            session,
+            user_id=user.id,
+            event_type=EventType.create_user,
+            meta={"provider": provider},
+        )
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.login,
+        meta={"provider": provider},
+    )
+    session.commit()
+
     return resp

@@ -1,5 +1,4 @@
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from typing import Optional
 

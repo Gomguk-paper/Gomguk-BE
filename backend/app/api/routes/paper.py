@@ -8,7 +8,8 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from app.api.deps import SessionDep, CurrentUser
-from app.core.enums import Site
+from app.core.enums import Site, EventType
+from app.crud.event import create_event
 from app.models.paper import Paper, PaperTag
 from app.models.user import UserPaperLike, UserPaperScrap
 
@@ -136,6 +137,26 @@ def list_papers(
     subq = base.subquery()
     total = session.exec(select(func.count()).select_from(subq)).one()
 
+    # 검색 의도가 있을 때만 search 이벤트 기록
+    if q or (tag is not None) or (source is not None):
+        create_event(
+            session,
+            user_id=user.id,
+            event_type=EventType.search,
+            meta={
+                "query": q,
+                "filters": {
+                    "tag": tag,
+                    "source": (source.value if hasattr(source, "value") else str(source)) if source is not None else None,
+                },
+                "sort": sort,
+                "limit": limit,
+                "offset": offset,
+                "source": "paper_list",
+            },
+        )
+        session.commit()
+
     return PagedPapersResponse(
         items=[PaperItem(paper=_to_paper_out(p)) for p in papers],
         count=total,
@@ -175,6 +196,14 @@ def get_paper_detail(
         .where(UserPaperScrap.user_id == user.id, UserPaperScrap.paper_id == paper_id)
     ).first() is not None
 
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.view,
+        meta={"paper_id": paper_id, "source": "paper_detail"},
+    )
+    session.commit()
+
     return _to_paper_out(
         paper,
         tags=list(tags),
@@ -205,6 +234,12 @@ def like_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
     if not existing:
         session.add(UserPaperLike(user_id=user.id, paper_id=paper_id))
+        create_event(
+            session,
+            user_id=user.id,
+            event_type=EventType.like,
+            meta={"paper_id": paper_id, "source": "paper_like"},
+        )
         session.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -234,6 +269,12 @@ def unlike_paper(session: SessionDep, user: CurrentUser, paper_id: int):
         raise HTTPException(status_code=404, detail="Like not found")
 
     session.delete(existing)
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.unlike,
+        meta={"paper_id": paper_id, "source": "paper_unlike"},
+    )
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -262,6 +303,12 @@ def scrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
         session.add(UserPaperScrap(user_id=user.id, paper_id=paper_id))
         session.commit()
 
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.save,
+        meta={"paper_id": paper_id, "source": "paper_save"},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -289,5 +336,12 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
         raise HTTPException(status_code=404, detail="Scrap not found")
 
     session.delete(existing)
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.unsave,
+        meta={"paper_id": paper_id, "source": "paper_unsave"},
+    )
     session.commit()
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
