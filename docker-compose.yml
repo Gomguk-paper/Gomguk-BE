@@ -77,6 +77,7 @@ services:
       - "8080:8080"
     networks:
       - proxy-net
+      - default
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
       interval: 30s
@@ -237,6 +238,7 @@ services:
       - "9001:9001"
     networks:
       - proxy-net
+      - default
     environment:
       # .env 파일에 설정하거나 기본값 사용
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
