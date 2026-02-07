@@ -74,8 +74,8 @@ def save_paper_and_summary(conn, paper_data, summary_data):
     try:
         # 1. papers 테이블에 INSERT
         insert_paper_query = """
-        INSERT INTO papers (title, short, authors, published_at, image_url, raw_url, source)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO papers (title, short, authors, published_at, image_url, raw_url, source, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
         RETURNING id
         """
         # authors: jsonb -> text[] 변환
@@ -98,8 +98,8 @@ def save_paper_and_summary(conn, paper_data, summary_data):
 
         # 2. paper_summaries 테이블에 INSERT
         insert_summary_query = """
-        INSERT INTO paper_summaries (paper_id, hook, points, detailed, style)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO paper_summaries (paper_id, hook, points, detailed, style, created_at)
+        VALUES (%s, %s, %s, %s, %s, NOW())
         """
         cursor.execute(insert_summary_query, (
             paper_id,
@@ -205,6 +205,8 @@ async def main_async_logic(limit=None):
 
         logging.info(f"📊 Summary complete: {success_count} success, {fail_count} failed")
 
+        return success_count, fail_count
+
     finally:
         if conn:
             conn.close()
@@ -222,4 +224,12 @@ def run_summarizing_process(**context):
     except (KeyError, ValueError):
         limit = None
 
-    asyncio.run(main_async_logic(limit))
+    result = asyncio.run(main_async_logic(limit))
+
+    # 결과 확인: 전부 실패한 경우만 예외 발생
+    if result:
+        success_count, fail_count = result
+        if fail_count > 0 and success_count == 0:
+            raise Exception(f"모든 논문 요약 실패: {fail_count}개 실패")
+        elif fail_count > 0:
+            logging.warning(f"⚠️ 일부 논문 요약 실패: {success_count}개 성공, {fail_count}개 실패")
