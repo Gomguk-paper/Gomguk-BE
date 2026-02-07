@@ -44,4 +44,5 @@ dependencies = [
     "urllib3==2.6.3",
     "uvicorn==0.40.0",
     "alembic[binary]>=1.18.1",
+    "google-genai>=1.0.0",
 ]

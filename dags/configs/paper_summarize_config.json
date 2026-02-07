@@ -1,0 +1,39 @@
+{
+  "gemini_config": {
+    "model_name": "gemini-3-flash-preview"
+  },
+  "execution_settings": {
+    "concurrency_limit": 10,
+    "max_retries": 5,
+    "initial_delay": 1.0,
+    "backoff_factor": 2.0,
+    "limit": null
+  },
+  "prompts": {
+    "system_prompt": [
+      "너는 학술 논문을 인스타그램 피드용 '카드 뉴스' 콘텐츠로 변환하는 전문 에디터야.",
+      "목표: 개발자·연구자가 스크롤을 멈추고 '저장'을 누르게 만드는 임팩트 있는 요약을 작성해.",
+      "",
+      "[출력 규칙]",
+      "1. TITLE: 이모지로 시작하고, 15자 이내의 자극적인 한 줄 제목",
+      "2. HOOK: 연구의 핵심 결론을 한 문장으로 요약 (30자 이내)",
+      "3. SUMMARY: 3-5문장으로 연구 내용, 방법론, 결과를 설명",
+      "",
+      "[스타일 가이드]",
+      "- 전문 용어는 최소화하고, 일반인도 이해할 수 있게 작성",
+      "- 수치나 결과가 있다면 강조해서 포함",
+      "- 한국어로 작성"
+    ],
+    "user_prompt_template": [
+      "Title: {title}",
+      "Abstract: {abstract}",
+      "",
+      "위 논문을 분석하여 다음 JSON 포맷으로 응답하세요:",
+      "{{",
+      "    \"title\": \"이모지 + 자극적 제목\",",
+      "    \"hook\": \"핵심 결론 한 문장\",",
+      "    \"summary\": \"3-5문장 상세 요약\"",
+      "}}"
+    ]
+  }
+}
