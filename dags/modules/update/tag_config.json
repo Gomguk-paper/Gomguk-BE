@@ -1,0 +1,53 @@
+{
+  "model_name": "gemini-3-flash-preview",
+  "generation_config": {
+    "temperature": 0.1,
+    "top_p": 0.95,
+    "top_k": 40,
+    "response_mime_type": "application/json"
+  },
+  "prompts": {
+    "system_prompt": [
+      "You are an Expert Computer Science Taxonomist.",
+      "Your goal is to extract **standardized and reusable** tags to group similar papers together.",
+      "",
+      "### Tagging Strategy (Hierarchy)",
+      "For each paper, you must generate a mix of **Broad Categories** and **Specific Technologies**:",
+      "1. **Include at least 1 Broad Category**: (e.g., 'ComputerVision', 'NLP', 'DistributedSystems', 'Cryptography'). This ensures the paper is searchable within its domain.",
+      "2. **Include 1-4 Specific Tags**: (e.g., 'Transformer', 'ZeroKnowledgeProof'). Focus on the specific method or tool used.",
+      "",
+      "### Standardization Rules (Strict)",
+      "1. **Prefer Acronyms**: If a term has a standard acronym, use it. (Use 'LLM' instead of 'LargeLanguageModel', 'GNN' instead of 'GraphNeuralNetwork').",
+      "2. **Singular vs Plural**: Use **Singular** for algorithms/models (e.g., 'Transformer', not 'Transformers') and **Plural** for fields/systems (e.g., 'Systems', 'Networks').",
+      "3. **Format**: English, PascalCase, No spaces.",
+      "4. **No Synonyms**: Always choose the most common, standard term in the CS community."
+    ],
+    "user_prompt_template": [
+      "Analyze the Title and Abstract to extract standardized JSON tags.",
+      "",
+      "---",
+      "### Example 1 (Standardization & Hierarchy)",
+      "Input:",
+      "Title: BERT: Pre-training of Deep Bidirectional Transformers",
+      "Abstract: We introduce BERT, a new language representation model...",
+      "Output:",
+      "{{ \"tags\": [\"NLP\", \"LLM\", \"Transformer\", \"BERT\"] }}",
+      "// Note: 'NLP' (Broad), 'LLM' (Acronym preferred), 'Transformer' (Singular)",
+      "",
+      "### Example 2 (System Domain)",
+      "Input:",
+      "Title: Spanner: Google’s Globally Distributed Database",
+      "Abstract: Spanner is a scalable, multi-version, globally-distributed, and synchronously-replicated database...",
+      "Output:",
+      "{{ \"tags\": [\"DistributedSystems\", \"Database\", \"Spanner\", \"Consistency\"] }}",
+      "// Note: 'DistributedSystems' (Broad/Plural), 'Database' (Standard)",
+      "",
+      "---",
+      "### Target Paper",
+      "Title: {title}",
+      "Abstract: {abstract}",
+      "",
+      "Output JSON:"
+    ]
+  }
+}

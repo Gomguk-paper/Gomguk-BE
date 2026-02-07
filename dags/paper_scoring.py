@@ -17,14 +17,14 @@ with DAG(
     # 2. 첫 번째 태스크: 카테고리 가중치 계산 (Truncate & Insert)
     calc_weights = SQLExecuteQueryOperator(
         task_id='calc_category_weights',
-        conn_id='db',  # <-- 여기 이름이 바뀝니다!
+        conn_id='db',
         sql='1_calc_category_weights.sql'
     )
 
     # 3. 두 번째 태스크: 논문 점수 업데이트 (Update)
     update_scores = SQLExecuteQueryOperator(
         task_id='update_paper_scores',
-        conn_id='db',  # postgres_conn_id -> conn_id
+        conn_id='db',
         sql='2_update_paper_scores.sql'
     )
 

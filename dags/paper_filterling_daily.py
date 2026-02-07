@@ -11,8 +11,6 @@ with DAG(
     catchup=False,
     tags=['papers', 'ai', 'filtering'],
 ) as dag:
-
-    # 실제 로직은 gemini_runner.run_filtering_process 안에 있음
     filtering_task = PythonOperator(
         task_id='gemini_paper_filtering',
         python_callable=run_filtering_process

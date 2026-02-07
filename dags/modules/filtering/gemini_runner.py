@@ -7,7 +7,6 @@ import logging
 from airflow.models import Variable
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
-# Google Gen AI SDK
 try:
     from google import genai
     from google.genai import types
@@ -20,8 +19,7 @@ except ImportError:
 # ==========================================
 def load_config():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # modules/filtering/ -> ../../ -> dags/ -> configs/
-    config_path = os.path.join(base_dir, '..', '..', 'configs', 'paper_filter_config.json')
+    config_path = os.path.join(base_dir, 'paper_filter_config.json')
     config_path = os.path.normpath(config_path)
 
     if not os.path.exists(config_path):
@@ -53,17 +51,23 @@ def get_db_connection():
 def save_evaluation_results(conn, results):
     if not results: return
     cursor = conn.cursor()
+
+    # ai_tags 컬럼 제거됨
     query = """
     INSERT INTO paper_evaluation_log 
-    (paper_id, category_code, is_recommended, ai_reason, ai_tags)
-    VALUES (%s, %s, %s, %s, %s)
+    (paper_id, category_code, is_recommended, ai_reason)
+    VALUES (%s, %s, %s, %s)
     """
+
     data = []
     for r in results:
+        # status가 없는 경우 스킵
         if 'status' not in r: continue
-        tags_json = json.dumps(r.get('ai_tags', []))
+
         is_rec = True if r['status'] == 'RECOMMENDED' else False
-        data.append((r['id'], r['category'], is_rec, r['ai_reason'], tags_json))
+
+        data.append((r['id'], r['category'], is_rec, r['ai_reason']))
+
     cursor.executemany(query, data)
     conn.commit()
     cursor.close()
@@ -135,28 +139,33 @@ async def evaluate_paper_async(client, config, paper, semaphore):
         attempt = 0
         while attempt <= exec_settings['max_retries']:
             try:
+                # API 호출
                 response = await client.aio.models.generate_content(
                     model=model_name,
                     contents=full_prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
                 )
+
                 result = json.loads(response.text)
+
                 paper['ai_reason'] = result.get('reason', '')
-                paper['ai_tags'] = result.get('tags', [])
                 paper['status'] = 'RECOMMENDED' if result.get('recommendation') else 'REJECTED'
                 return paper
+
             except Exception as e:
                 attempt += 1
                 if attempt > exec_settings['max_retries']:
                     logging.error(f"❌ [Paper {paper['id']}] Failed. Error: {e}")
                     paper['status'] = 'REJECTED'
                     paper['ai_reason'] = f"API Error: {str(e)}"
-                    paper['ai_tags'] = []
+                    # paper['ai_tags'] = []  <-- 삭제
                     return paper
-                sleep_time = (exec_settings['initial_delay'] * (
-                            exec_settings['backoff_factor'] ** (attempt - 1))) + random.uniform(0, 1)
-                await asyncio.sleep(sleep_time)
 
+                sleep_time = (exec_settings['initial_delay'] * (
+                        exec_settings['backoff_factor'] ** (attempt - 1))) + random.uniform(0, 1)
+                await asyncio.sleep(sleep_time)
 
 async def process_category_async(conn, client, config, cat, quota, semaphore):
     candidates = fetch_candidates(conn, cat, quota)
