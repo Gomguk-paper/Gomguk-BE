@@ -1,0 +1,7 @@
+{
+  "model_name": "gemini-2.5-flash-image",
+  "prompt_template": "A crudely drawn, low-effort meme doodle illustrating the core concept: {summary}. Style: MS Paint style, wobbly lines, childish drawing, messy coloring, flat colors, minimalist white background. Features a poorly drawn stick figure or blob character looking confused, distressed, or derpy while interacting with a crudely drawn object representing the technology. The whole image should look like a funny, low-quality internet meme. **Visuals only. Strictly no text, no letters, no Hangul, no words. Only numbers and simple symbols (like emojis) are allowed.**",
+  "negative_prompt": "high quality, detailed, 3D render, realistic, professional illustration, beautiful, cinematic lighting, shading, futuristic, sci-fi, **text, writing, typography, words, alphabet, signature, watermark, logo, speech bubble, thought bubble, korean text, hangul, caption, label, font**",
+  "aspect_ratio": "1:1",
+  "bucket_name": "papers"
+}

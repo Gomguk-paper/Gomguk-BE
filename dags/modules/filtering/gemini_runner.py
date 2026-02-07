@@ -19,8 +19,7 @@ except ImportError:
 # ==========================================
 def load_config():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # modules/filtering/ -> ../../ -> dags/ -> configs/
-    config_path = os.path.join(base_dir, '..', '..', 'configs', 'paper_filter_config.json')
+    config_path = os.path.join(base_dir, 'paper_filter_config.json')
     config_path = os.path.normpath(config_path)
 
     if not os.path.exists(config_path):
