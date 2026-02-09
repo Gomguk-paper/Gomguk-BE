@@ -1,0 +1,203 @@
+### 목적
+
+요구사항을 그대로 구현 가능한 수준으로 구체화한다.
+
+- Paper DB에서 논문/태그 정보를 가져온다.
+- `models.user.pi`(유저 선호 벡터)를 참고해 `paper×tag` 매트릭스로 paper별 점수를 계산한다.
+- 사용자에 맞게 paper_id를 점수 순으로 정렬한다.
+- 정렬된 paper_id로 다시 papers를 조회해서 피드 응답을 만든다(정렬 유지).
+
+이 문서는 “Tag-TS로 `pi`를 만들고, `paper_tags`(희소 매트릭스)로 paper 랭킹을 만드는 방식”을 기준으로 한다.
+
+---
+
+## 현재 코드 기준(레포 구조)
+
+- 피드 라우트: `Gomguk-BE/backend/app/api/routes/paper.py`의 `get_feed()`는 현재 최신순 정렬만 수행
+- 이벤트: `EventType`은 `impression`/`click`이 없어서 `create_event()`에 문자열을 넣으면 스킵됨
+  - `Gomguk-BE/backend/app/core/enums.py`
+  - `Gomguk-BE/backend/app/crud/event.py`
+- 유저 모델: `User`에 `pi` 필드가 아직 없음 (`meta: JSONB`만 존재)
+  - `Gomguk-BE/backend/app/models/user.py`
+- 논문/태그: `Paper`, `Tag`, `PaperTag` 존재
+  - `Gomguk-BE/backend/app/models/paper.py`
+
+---
+
+## 핵심 데이터 정의
+
+### 1) `user.pi` (유저 선호 벡터)
+
+- 형태: `pi: dict[int, float]` (키=tag_id, 값=가중치)
+- 합은 1로 정규화(`Σ pi = 1`)를 권장
+
+저장/계산 옵션(추천 순)
+
+- 옵션 A) 런타임 계산(추천)
+  - `bandit_user_tag_stats(user_id, tag_id, alpha, beta)`에서 theta 샘플/기댓값으로 `pi` 생성
+  - 장점: 항상 최신(alpha/beta 반영), 별도 캐시 동기화 문제 없음
+- 옵션 B) `users.meta['pi']`에 캐시 저장
+  - 장점: DB read 줄고 단순
+  - 단점: stale/동기화 처리 필요
+
+### 2) “매트릭” = `paper×tag` 희소 행렬
+
+- 실체: `paper_tags(paper_id, tag_id)`가 곧 incidence matrix
+- paper의 tag 집합을 `T(p)`로 두면, 매트릭 기반 점수는:
+  - `score(p) = Σ_{t in T(p)} pi[t]`
+
+---
+
+## DB 스키마(권장)
+
+### 1) Thompson Sampling 상태
+
+- `bandit_user_tag_stats`
+  - `user_id`, `tag_id`, `alpha`, `beta`, `updated_at`
+  - UNIQUE(user_id, tag_id)
+
+콜드스타트 완충(선택)
+
+- `bandit_global_tag_stats(tag_id, alpha, beta)`
+
+### 2) 추천 노출(임프레션) 로그 (필수에 가까움)
+
+이유: “노출했는데 반응이 없었다”를 fail(0 reward)로 확정하려면 노출 로그가 있어야 함.
+
+- `bandit_impressions`
+  - `id` (PK)
+  - `rec_id` (UUID/ULID, UNIQUE)
+  - `user_id`
+  - `paper_id`
+  - `tag_id` (nullable; paper의 주요 기여 태그를 넣거나, 선택한 arm을 넣음)
+  - `shown_at`
+  - `resolved_at` (nullable)
+  - `outcome` (pending/success/fail)
+
+대안(간단하지만 비추)
+
+- EventType에 `impression`을 추가하고 event로 노출 추적
+  - 단, “pending → TTL 후 fail” 같은 상태 관리는 결국 별도 테이블이 더 편함
+
+---
+
+## 추천 생성(피드) 구현 설계
+
+### 0) 엔드포인트/호환성
+
+- 기존 유지: `GET /paper/feed`는 기본 최신순 유지
+- 추천 모드 추가:
+  - `GET /paper/feed?mode=ts` 또는 `mode=ts_matrix`
+  - mode가 추천일 때만 아래 파이프라인 수행
+
+### 1) 단계별 파이프라인
+
+1) (선택) `resolve_pending_failures(user_id, ttl)`
+   - `bandit_impressions`에서 오래된 pending을 fail 처리 + `beta += 1`
+   - 방식:
+     - (A) `get_feed()` 진입 시마다 “내 유저의 pending 중 만료분”만 정리(MVP 추천)
+     - (B) 배치/워커로 주기 처리(운영 확장 시)
+
+2) 후보 tag 선정: `candidate_tag_ids`
+   - 기본: 전체 tag
+   - 추천: “유저 최근 활동 태그 + 랜덤 일부 + 상위 count 태그”
+
+3) `user.pi` 생성
+   - 각 tag에 대해 (alpha,beta)를 가져와 theta 샘플:
+     - Python 표준: `random.betavariate(alpha, beta)`
+   - `pi[tag] = theta`로 두고 `Σ pi`로 정규화
+   - 성능 위해 top-k 태그만 남기는 것을 권장(k=20~50)
+
+4) Paper DB에서 후보 paper 모으기(전체 스캔 금지)
+   - top-k 태그에 대해 “태그별 최근 N개 paper_id”를 가져와 union
+     - 예: tag당 최근 200개 (최신 200×50=1만 rows 수준)
+   - 이미 본/좋아요/스크랩한 paper_id는 제외(또는 마지막에 제외)
+
+5) “매트릭”으로 점수 계산 → paper_id 정렬
+   - `paper_tags` rows(= (paper_id, tag_id))를 순회하며 `scores[paper_id] += pi[tag_id]`
+   - tie-breaker:
+     - `published_at desc`, 그 다음 `paper_id desc`
+
+6) paper_id로 papers를 다시 조회(정렬 유지)
+   - `WHERE papers.id IN (:ids)`
+   - **정렬 유지가 핵심**: DB에서 `ORDER BY array_position(:ids, papers.id)` 또는 SQLAlchemy `case()`로 순서 보장
+
+7) 노출 로그 저장
+   - 응답 item마다 `rec_id` 발급
+   - `bandit_impressions`에 pending으로 insert
+   - `tag_id`는 `argmax_{t in T(p)} pi[t]`로 채우면 분석/업데이트가 단순해짐
+
+### 2) 추천 서비스 모듈(권장 파일)
+
+- 신규: `Gomguk-BE/backend/app/services/paper_reco_ts_matrix.py`
+  - `resolve_pending_failures(session, user_id, ttl_hours) -> int`
+  - `build_user_pi(session, user_id, candidate_tag_ids, *, top_k) -> dict[tag_id, float]`
+  - `collect_candidate_paper_tag_rows(session, top_tag_ids, *, per_tag_limit, since_days) -> list[tuple[paper_id, tag_id]]`
+  - `rank_paper_ids(rows, pi, *, limit) -> list[int]`
+  - `fetch_papers_preserve_order(session, paper_ids) -> list[Paper]`
+  - `log_impressions(session, user_id, paper_ids, pi) -> list[rec_id]`
+
+라우트 연결
+
+- `Gomguk-BE/backend/app/api/routes/paper.py:get_feed()`에서 `mode` 분기 후 서비스 호출
+
+---
+
+## 피드백(보상 업데이트) 구현 설계
+
+### 1) 성공(success) 처리
+
+트리거(초기 MVP)
+
+- 좋아요: `PUT /paper/{paper_id}/like`
+- 스크랩: `PUT /paper/{paper_id}/scrap`
+
+필수 조건
+
+- FE가 추천 응답에서 받은 `rec_id`를 “like/scrap 요청”에 함께 보내야 함
+  - 그렇지 않으면 “어떤 추천 노출에 대한 반응인지” 매핑이 불완전해짐
+
+API 설계(권장)
+
+- `POST /paper/feed/feedback`
+  - body: `{ "rec_id": "...", "action": "like" | "scrap" }`
+  - 처리:
+    1) `bandit_impressions`에서 rec_id 조회 (pending인지 확인)
+    2) outcome=success, resolved_at 갱신
+    3) `bandit_user_tag_stats(user_id, tag_id).alpha += 1`
+
+### 2) 실패(fail) 처리
+
+- TTL 기반으로 “pending이 오래되면 fail”
+  - outcome=fail
+  - `bandit_user_tag_stats(user_id, tag_id).beta += 1`
+
+---
+
+## MVP에서 먼저 결정해야 하는 것(최소 의사결정)
+
+1) `user.pi`를 “계산”할지 “저장”할지
+   - 추천: 런타임 계산(옵션 A)
+2) 임프레션을 Event로 할지, 테이블로 할지
+   - 추천: `bandit_impressions` 테이블
+3) 후보 paper 범위를 어디까지로 제한할지
+   - 추천: “top-k 태그 × 태그당 최근 N개”로 제한
+4) 추천 모드를 어떤 쿼리로 켤지
+   - 추천: `GET /paper/feed?mode=ts`
+
+---
+
+## 간단 의사코드(실제로 붙일 수 있는 수준)
+
+feed(user_id, limit):
+
+1) resolve_pending_failures(user_id, ttl=24h)
+2) candidate_tag_ids = get_candidate_tags(user_id)
+3) pi = build_user_pi(user_id, candidate_tag_ids, top_k=50)
+4) rows = collect_candidate_paper_tag_rows(top_tag_ids=keys(pi), per_tag_limit=200, since_days=365)
+5) rows = filter_out_seen_liked_scrapped(rows, user_id)
+6) ranked_ids = rank_paper_ids(rows, pi, limit=limit)
+7) papers = fetch_papers_preserve_order(ranked_ids)
+8) rec_ids = log_impressions(user_id, ranked_ids, pi)
+9) response = zip(papers, rec_ids)
+

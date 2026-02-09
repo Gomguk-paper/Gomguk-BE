@@ -5,12 +5,13 @@ from typing import Any, Optional
 
 import jwt
 from starlette.responses import Response
-from fastapi import APIRouter, Cookie, HTTPException, status
+from fastapi import APIRouter, Cookie, HTTPException, Request, status
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import BaseModel, ValidationError
 
 from app.api.deps import SessionDep
 from app.core.config import settings
+from app.core.cookies import get_cookie_settings
 from app.core.enums import EventType
 from app.crud.event import create_event
 from app.schemas.token_payload import TokenPayload
@@ -147,30 +148,31 @@ def refresh_access_token(
         "로그아웃 처리: refresh_token 쿠키를 삭제합니다.\n\n"
         "- Auth: Cookie `refresh_token` (있으면 무효화/삭제, 없어도 성공 처리)\n"
         "- Response: 204\n"
-        "  - Set-Cookie: `refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=None`\n"
+        "  - Set-Cookie: `refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax/None`\n"
         "- Errors:\n"
         "  - 500"
     ),
 )
 def logout(
+    request: Request,
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> Response:
     resp = Response(status_code=status.HTTP_204_NO_CONTENT)
+    secure_cookie, refresh_samesite = get_cookie_settings(request=request)
 
     # refresh_token 쿠키 Path가 /api 일 수도 있고 / 일 수도 있어서 둘 다 삭제
     resp.delete_cookie(
         key="refresh_token",
         path="/api",
-        secure=True,
+        secure=secure_cookie,
         httponly=True,
-        samesite="none",
+        samesite=refresh_samesite,
     )
     resp.delete_cookie(
         key="refresh_token",
         path="/",
-        secure=True,
+        secure=secure_cookie,
         httponly=True,
-        samesite="none",
+        samesite=refresh_samesite,
     )
     return resp
-

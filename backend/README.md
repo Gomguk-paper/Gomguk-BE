@@ -17,7 +17,7 @@ OAuth 기반 로그인(현재 Google, GitHub OAuth 추가 예정) + 온보딩/�
 - **온보딩 / 마이페이지**
 - **검색 엔드포인트**
 - **PostgreSQL + Alembic 마이그레이션**
-- **uv 기반 패키지/실행 관리**
+- **Conda + pip 기반 패키지/실행 관리 (Ubuntu 기준)**
 
 ---
 
@@ -42,76 +42,63 @@ OAuth 기반 로그인(현재 Google, GitHub OAuth 추가 예정) + 온보딩/�
 - PostgreSQL (Docker Compose)
 - SQLModel / SQLAlchemy
 - Alembic (Migration)
-- uv (Dependencies)
+- Conda + pip (Dependencies)
 
 ---
 
-## 🧪 가상환경 세팅 (cmd 기준)
+## 🧪 가상환경 세팅 (Ubuntu + Conda 기준)
 
-### 1) 가상환경 생성
-```powershell
-C:\Gomguk-BE\backend> uv venv .venv
+### 1) Conda 환경 생성/활성화
+```bash
+cd Gomguk-BE/backend
+conda create -n gomguk-be python=3.11 -y
+conda activate gomguk-be
 ```
 
-### 2) 인터프리터 설정 (Pycharm 기준)
-```text
-File → Settings → Python → Interpreter에서 Python Interpreter를
-C:\Gomguk-BE\backend\.venv\Scripts\python.exe 로 설정해줍니다.
-```
-
-### 3) 라이브러리 설치
-```powershell
-C:\Gomguk-BE\backend> uv sync
+### 2) 라이브러리 설치
+```bash
+pip install -r requirements.txt
 ```
 
 ---
 
-## 🗄️ DB 연동법 (cmd 기준, 가상환경 세팅을 먼저 진행해 주세요!!)
+## 🗄️ DB 연동 (Ubuntu + Docker Compose 기준)
 
-### 1) .env 복붙 + DB 저장 폴더 생성
-`.env`를 `Gomguk-BE/`에 복붙하고, DB 저장용 폴더를 만들어줍니다.
-```powershell
-C:\> mkdir C:\docker\pgdata
+### 1) `.env` 생성
+`Gomguk-BE/.env.example`를 복사해서 `Gomguk-BE/.env`를 만들고 값들을 채워주세요.
+```bash
+cd Gomguk-BE
+cp .env.example .env
 ```
 
-### 2) 컨테이너 생성 및 실행
-```powershell
-C:\> cd C:\Gomguk-BE
-C:\Gomguk-BE> docker compose up -d
+### 2) (선택) Postgres 컨테이너만 실행
+백엔드만 먼저 띄우고 싶으면 `db` 서비스만 올리면 됩니다.
+```bash
+docker compose up -d db
 ```
+
+> `docker compose up -d`로 전체 스택(Airflow/MinIO 포함)을 올리려면,
+> `proxy-net`이 external 네트워크라서 먼저 만들어야 합니다:
+> ```bash
+> docker network create proxy-net
+> docker compose up -d
+> ```
 
 ### 3) 스키마 생성 (처음 실행 기준, 실행 경로 주의)
-```powershell
-C:\> cd C:\Gomguk-BE\backend
-C:\Gomguk-BE\backend> alembic upgrade head
+```bash
+cd Gomguk-BE/backend
+alembic upgrade head
 ```
 
 ---
 
 ## ▶️ 서버 실행
 
-### 1) 가상환경 활성화
-```powershell
-C:\> cd C:\Gomguk-BE\backend\.venv\Scripts
-C:\Gomguk-BE\backend\.venv\Scripts> activate
-(.venv) C:\Gomguk-BE\backend\.venv\Scripts>
-```
-
-### 2) 서버 실행
-```powershell
-(.venv) C:\> cd C:\Gomguk-BE\backend
-(.venv) C:\Gomguk-BE\backend> uv run uvicorn app.main:app --reload
-```
-
----
-
-## 📦 패키지 관련 (uv)
-- uv를 사용하고, `pyproject.toml`로 의존성을 관리합니다.
-- `uv.lock`은 상세 버전까지 자동 고정하는 파일입니다.
-
-```powershell
-uv sync                         # 패키지 동기화
-uv add "패키지이름[추가기능]"    # 패키지 설치
+### 1) 서버 실행
+```bash
+cd Gomguk-BE/backend
+conda activate gomguk-be
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ---
@@ -145,3 +132,6 @@ alembic upgrade head --sql
   - DB 접속 정보
   - OAuth Client ID / Client Secret
   - 서버 `SECRET_KEY`, 토큰 만료시간 등
+
+> 주의: 현재 설정은 필수 환경변수가 빠지면 앱 import 단계에서 바로 실패합니다.
+> (`ACCESS_TOKEN_EXPIRE_MINUTES`, `DATABASE_URL`, `SECRET_KEY` 등)

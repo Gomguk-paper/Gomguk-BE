@@ -14,6 +14,7 @@ from google.auth.transport import requests as google_requests
 
 from app.api.deps import SessionDep
 from app.core.config import settings
+from app.core.cookies import get_cookie_settings
 from app.core.enums import AuthProvider, EventType
 from app.crud.user import get_user_by_sub, create_user
 from app.crud.event import create_event
@@ -52,6 +53,7 @@ REFRESH_DAYS_REMEMBER = 7
 )
 def oauth_login(
     provider: str,
+    request: Request,
     redirect_uri: str = Query(..., description="로그인 성공 후 돌아갈 프런트 URL"),
     remember: bool = Query(False, description="로그인 유지"),
 ):
@@ -62,7 +64,7 @@ def oauth_login(
     if not backend_public_url:
         raise HTTPException(status_code=500, detail="BACKEND_PUBLIC_URL is not configured")
 
-    secure_cookie = backend_public_url.startswith("https://")
+    secure_cookie, _ = get_cookie_settings(request=request, redirect_uri=redirect_uri)
 
     # state 만들기(서명)
     now = datetime.now(timezone.utc)
@@ -161,8 +163,6 @@ async def oauth_callback(
     backend_public_url = getattr(settings, "BACKEND_PUBLIC_URL", "").rstrip("/")
     if not backend_public_url:
         raise HTTPException(status_code=500, detail="BACKEND_PUBLIC_URL is not configured")
-    secure_cookie = backend_public_url.startswith("https://")
-
     # state 쿠키 검증(최소)
     cookie_state = request.cookies.get(STATE_COOKIE_KEY)
     if not cookie_state or cookie_state != state:
@@ -175,6 +175,8 @@ async def oauth_callback(
         remember = bool(state_payload.get("remember", False))
     except Exception:
         raise HTTPException(status_code=401, detail="INVALID_STATE")
+
+    secure_cookie, refresh_samesite = get_cookie_settings(request=request, redirect_uri=redirect_uri)
 
     ttl_days = REFRESH_DAYS_REMEMBER if remember else REFRESH_DAYS_DEFAULT
     callback_url = f"{backend_public_url}/api/oauth/{provider}/callback"
@@ -337,7 +339,7 @@ async def oauth_callback(
         max_age=refresh_max_age,
         httponly=True,
         secure=secure_cookie,
-        samesite="lax",
+        samesite=refresh_samesite,
         path="/api",
     )
 
