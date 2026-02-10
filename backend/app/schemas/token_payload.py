@@ -4,6 +4,6 @@ from pydantic import BaseModel
 
 
 class TokenPayload(BaseModel):
-    sub: int
+    sub: str
     exp: Optional[int] = None
     iat: Optional[int] = None
