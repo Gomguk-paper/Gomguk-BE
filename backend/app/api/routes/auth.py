@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import jwt
 from fastapi import APIRouter, Cookie, HTTPException, status
+from jwt import PyJWTError
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import BaseModel, ValidationError
 from starlette.responses import Response
@@ -21,6 +22,14 @@ router = APIRouter()
 # Constants
 # =========================
 ACCESS_TOKEN_EXPIRES_IN = 900  # seconds (15m)
+
+# 쿠키 기반 인증 강제: access/refresh 모두 쿠키로만 운용
+ACCESS_COOKIE_KEY = "access_token"
+REFRESH_COOKIE_KEY = "refresh_token"
+
+# oauth 라우터에서 발급한 옵션과 "통일"하는 걸 권장
+COOKIE_PATH = "/api"
+COOKIE_SAMESITE = "lax"
 
 
 # =========================
@@ -52,6 +61,10 @@ def _error(status_code: int, code: str, message: str) -> HTTPException:
 
 
 def _issue_access_token(subject: str | int) -> str:
+    """
+    access token 발급 (JWT)
+    - sub는 문자열로 고정 (PyJWT subject 검증 + TokenPayload 통일)
+    """
     now = datetime.now(timezone.utc)
     exp = now + timedelta(seconds=ACCESS_TOKEN_EXPIRES_IN)
 
@@ -65,6 +78,11 @@ def _issue_access_token(subject: str | int) -> str:
 
 
 def _decode_refresh_token(refresh_token: str) -> TokenPayload:
+    """
+    refresh token 디코드/검증
+    - 서명/만료 검증
+    - TokenPayload 스키마 검증
+    """
     try:
         payload = jwt.decode(
             refresh_token,
@@ -72,16 +90,6 @@ def _decode_refresh_token(refresh_token: str) -> TokenPayload:
             algorithms=[settings.ALGORITHM],
         )
         token = TokenPayload(**payload)
-
-        # typ 방어 (명세에 명시된 refresh 쿠키만 허용)
-        typ = getattr(token, "typ", None)
-        if typ != "refresh":
-            raise _error(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                code="INVALID_REFRESH",
-                message="Invalid refresh token.",
-            )
-
         return token
 
     except ExpiredSignatureError:
@@ -90,7 +98,8 @@ def _decode_refresh_token(refresh_token: str) -> TokenPayload:
             code="REFRESH_EXPIRED",
             message="Refresh token expired.",
         )
-    except (InvalidTokenError, ValidationError):
+    except (PyJWTError, InvalidTokenError, ValidationError):
+        # InvalidSubjectError 등도 PyJWTError로 잡히는 게 안전
         raise _error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="INVALID_REFRESH",
@@ -101,6 +110,43 @@ def _decode_refresh_token(refresh_token: str) -> TokenPayload:
 def _secure_cookie() -> bool:
     backend_public_url = getattr(settings, "BACKEND_PUBLIC_URL", "").rstrip("/")
     return backend_public_url.startswith("https://")
+
+
+def _set_access_cookie(response: Response, access_token: str) -> None:
+    secure_cookie = _secure_cookie()
+    response.set_cookie(
+        key=ACCESS_COOKIE_KEY,
+        value=access_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite=COOKIE_SAMESITE,
+        path=COOKIE_PATH,
+    )
+
+
+def _delete_auth_cookies(response: Response) -> None:
+    """
+    access/refresh 쿠키 삭제.
+    - 현재 운영값(COOKIE_PATH=/api) 삭제
+    - 과거 호환(/) 삭제도 함께 수행
+    """
+    secure_cookie = _secure_cookie()
+
+    for path in (COOKIE_PATH, "/"):
+        response.delete_cookie(
+            key=ACCESS_COOKIE_KEY,
+            path=path,
+            secure=secure_cookie,
+            httponly=True,
+            samesite=COOKIE_SAMESITE,
+        )
+        response.delete_cookie(
+            key=REFRESH_COOKIE_KEY,
+            path=path,
+            secure=secure_cookie,
+            httponly=True,
+            samesite=COOKIE_SAMESITE,
+        )
 
 
 # =========================
@@ -114,15 +160,16 @@ def _secure_cookie() -> bool:
     description=(
         "refresh_token(HttpOnly 쿠키)로 access token(JWT)을 재발급합니다.\n\n"
         "- Auth: Cookie `refresh_token`\n"
-        "- Response: 200 `{access_token, token_type, expires_in}`\n"
+        "- Response: 200 `{access_token, token_type, expires_in}` + access_token 쿠키 갱신\n"
         "- Errors:\n"
         "  - 401 `AUTH_REQUIRED` (쿠키 없음)\n"
-        "  - 401 `INVALID_REFRESH` (위조/서명 불일치/typ 불일치 등)\n"
+        "  - 401 `INVALID_REFRESH` (위조/서명 불일치 등)\n"
         "  - 401 `REFRESH_EXPIRED` (만료)\n"
         "  - 500"
     ),
 )
 def refresh_access_token(
+    response: Response,  # ✅ 쿠키 갱신용
     session: SessionDep,
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> RefreshResponse:
@@ -135,6 +182,9 @@ def refresh_access_token(
 
     token_data = _decode_refresh_token(refresh_token)
     access_token = _issue_access_token(token_data.sub)
+
+    # ✅ 쿠키 기반 인증 강제: access_token 쿠키를 반드시 갱신
+    _set_access_cookie(response, access_token)
 
     try:
         create_event(
@@ -156,10 +206,9 @@ def refresh_access_token(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="로그아웃",
     description=(
-        "로그아웃 처리: refresh_token 쿠키를 삭제합니다.\n\n"
-        "- Auth: Cookie `refresh_token` (있으면 삭제, 없어도 성공 처리)\n"
+        "로그아웃 처리: access_token, refresh_token 쿠키를 삭제합니다.\n\n"
+        "- Auth: Cookie refresh_token (있으면 이벤트 기록, 없어도 성공 처리)\n"
         "- Response: 204\n"
-        "  - Set-Cookie: `refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=None`\n"
         "- Errors:\n"
         "  - 500"
     ),
@@ -168,6 +217,7 @@ def logout(
     session: SessionDep,
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> Response:
+    # refresh_token이 있으면 sub를 뽑아 이벤트 기록 (만료 여부는 무시)
     if refresh_token:
         try:
             payload = jwt.decode(
@@ -186,26 +236,12 @@ def logout(
                 )
                 session.commit()
         except Exception:
-            pass  # 로그아웃은 절대 실패하면 안 되므로 무시
+            # 로그아웃은 절대 실패하면 안 되므로 무시
+            pass
 
-    secure_cookie = _secure_cookie()
     resp = Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    resp.delete_cookie(
-        key="refresh_token",
-        path="/",
-        secure=secure_cookie,
-        httponly=True,
-        samesite="none",
-    )
-
-    # (과거 코드에서 /api로 발급한 적이 있다면 호환 삭제)
-    resp.delete_cookie(
-        key="refresh_token",
-        path="/api",
-        secure=secure_cookie,
-        httponly=True,
-        samesite="none",
-    )
+    # ✅ access/refresh 모두 삭제
+    _delete_auth_cookies(resp)
 
     return resp

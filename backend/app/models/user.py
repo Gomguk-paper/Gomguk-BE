@@ -54,7 +54,7 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     provider: Optional[str] = Field(default=None, index=True)
     provider_sub: str = Field(default=None, nullable=False, index=True)
-    email: str = Field(default=None, unique=True)
+    email: Optional[str] = Field(default=None, nullable=True)
     name: str = Field(unique=True, nullable=False)
     profile_image: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow, nullable=False)

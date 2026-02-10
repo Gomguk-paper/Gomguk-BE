@@ -17,3 +17,5 @@ app.egg-info/
 .coverage
 htmlcov/
 .cache/
+
+docker-compose.yml
