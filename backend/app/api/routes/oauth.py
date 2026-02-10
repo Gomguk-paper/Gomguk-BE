@@ -25,9 +25,25 @@ ProviderName = Literal["google", "github"]
 STATE_COOKIE_KEY = "oauth_state"
 STATE_TTL_SECONDS = 10 * 60
 
+ACCESS_COOKIE_KEY = "access_token"  # ✅ access도 쿠키로(세션 쿠키)
 REFRESH_COOKIE_KEY = "refresh_token"
+
 REFRESH_DAYS_DEFAULT = 1
 REFRESH_DAYS_REMEMBER = 7
+
+ACCESS_MINUTES = 20  # ✅ access 만료(세션 쿠키라도 exp는 짧게)
+
+
+def _cookie_samesite_and_secure(backend_public_url: str) -> tuple[str, bool]:
+    """
+    쿠키 SameSite/Secure 결정.
+
+    - 기본: SameSite=Lax (동일 site 범주면 충분)
+    - ⚠️ 프런트/백엔드가 "크로스사이트"로 잡히는 배포 환경이면 None+Secure가 필요.
+      지금은 기존 코드/명세 흐름에 맞춰 Lax 유지.
+    """
+    secure_cookie = backend_public_url.startswith("https://")
+    return "lax", secure_cookie
 
 
 # =========================
@@ -56,13 +72,13 @@ def oauth_login(
     remember: bool = Query(False, description="로그인 유지"),
 ):
     if provider not in ("google", "github"):
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise HTTPException(status_code=404, detail="PROVIDER_NOT_FOUND")
 
     backend_public_url = getattr(settings, "BACKEND_PUBLIC_URL", "").rstrip("/")
     if not backend_public_url:
-        raise HTTPException(status_code=500, detail="BACKEND_PUBLIC_URL is not configured")
+        raise HTTPException(status_code=500, detail="OAUTH_NOT_CONFIGURED: BACKEND_PUBLIC_URL")
 
-    secure_cookie = backend_public_url.startswith("https://")
+    samesite, secure_cookie = _cookie_samesite_and_secure(backend_public_url)
 
     # state 만들기(서명)
     now = datetime.now(timezone.utc)
@@ -81,7 +97,7 @@ def oauth_login(
     # provider authorize URL 만들기
     if provider == "google":
         if not getattr(settings, "GOOGLE_CLIENT_ID", None):
-            raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID is not configured")
+            raise HTTPException(status_code=500, detail="OAUTH_NOT_CONFIGURED: GOOGLE_CLIENT_ID")
 
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
@@ -95,7 +111,7 @@ def oauth_login(
         location = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
     else:
         if not getattr(settings, "GITHUB_CLIENT_ID", None):
-            raise HTTPException(status_code=500, detail="GITHUB_CLIENT_ID is not configured")
+            raise HTTPException(status_code=500, detail="OAUTH_NOT_CONFIGURED: GITHUB_CLIENT_ID")
 
         params = {
             "client_id": settings.GITHUB_CLIENT_ID,
@@ -113,7 +129,7 @@ def oauth_login(
         max_age=STATE_TTL_SECONDS,
         httponly=True,
         secure=secure_cookie,
-        samesite="lax",
+        samesite=samesite,
         path="/api/oauth",
     )
     return resp
@@ -130,16 +146,16 @@ def oauth_login(
         "- state 쿠키와 query state 비교\n"
         "- code로 토큰 교환 후 provider_sub/email 획득\n"
         "- 유저 없으면 임시 닉네임으로 생성\n"
-        "- refresh_token(영속 쿠키, 1일/7일) 설정\n"
-        "- redirect_uri로 302 리다이렉트하며 is_new_user 전달"
+        "- access_token(세션 쿠키) + refresh_token(영속 쿠키, 1일/7일) 설정\n"
+        "- 302로 redirect_uri로 이동 (?is_new_user=...)\n"
     ),
     responses={
-        302: {"description": "프런트 redirect_uri로 리다이렉트"},
-        400: {"description": "요청 누락/토큰 교환 실패/email 없음 등"},
+        302: {"description": "쿠키 설정 후 프런트로 리다이렉트"},
+        400: {"description": "OAUTH_ERROR"},
         401: {"description": "INVALID_STATE"},
         404: {"description": "지원하지 않는 provider"},
         409: {"description": "user create error"},
-        500: {"description": "OAuth 환경변수 미설정"},
+        500: {"description": "OAUTH_CALLBACK_FAILED / OAuth 환경변수 미설정"},
     },
 )
 async def oauth_callback(
@@ -151,7 +167,7 @@ async def oauth_callback(
     error: Optional[str] = Query(None, description="provider error"),
 ):
     if provider not in ("google", "github"):
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise HTTPException(status_code=404, detail="PROVIDER_NOT_FOUND")
 
     if error:
         raise HTTPException(status_code=400, detail=f"OAUTH_ERROR: {error}")
@@ -160,8 +176,8 @@ async def oauth_callback(
 
     backend_public_url = getattr(settings, "BACKEND_PUBLIC_URL", "").rstrip("/")
     if not backend_public_url:
-        raise HTTPException(status_code=500, detail="BACKEND_PUBLIC_URL is not configured")
-    secure_cookie = backend_public_url.startswith("https://")
+        raise HTTPException(status_code=500, detail="OAUTH_CALLBACK_FAILED: BACKEND_PUBLIC_URL")
+    samesite, secure_cookie = _cookie_samesite_and_secure(backend_public_url)
 
     # state 쿠키 검증(최소)
     cookie_state = request.cookies.get(STATE_COOKIE_KEY)
@@ -187,7 +203,7 @@ async def oauth_callback(
 
     if provider == "google":
         if not getattr(settings, "GOOGLE_CLIENT_ID", None) or not getattr(settings, "GOOGLE_CLIENT_SECRET", None):
-            raise HTTPException(status_code=500, detail="Google OAuth is not configured")
+            raise HTTPException(status_code=500, detail="OAUTH_CALLBACK_FAILED: Google OAuth not configured")
 
         token_url = "https://oauth2.googleapis.com/token"
         data = {
@@ -202,12 +218,12 @@ async def oauth_callback(
             token_resp = await client.post(token_url, data=data)
 
         if token_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Failed to obtain token: {token_resp.status_code}")
+            raise HTTPException(status_code=400, detail=f"OAUTH_ERROR: token exchange failed ({token_resp.status_code})")
 
         token_json = token_resp.json()
         raw_id_token = token_json.get("id_token")
         if raw_id_token is None:
-            raise HTTPException(status_code=400, detail="no id_token")
+            raise HTTPException(status_code=400, detail="OAUTH_ERROR: no id_token")
 
         payload = google_id_token.verify_oauth2_token(
             raw_id_token,
@@ -217,18 +233,17 @@ async def oauth_callback(
         provider_sub = str(payload.get("sub") or "")
         email = payload.get("email") or ""
         if not provider_sub:
-            raise HTTPException(status_code=400, detail="No sub from Google")
+            raise HTTPException(status_code=400, detail="OAUTH_ERROR: No sub from Google")
         if not email:
-            raise HTTPException(status_code=400, detail="No email from Google")
+            raise HTTPException(status_code=400, detail="OAUTH_ERROR: No email from Google")
 
         provider_enum = AuthProvider.google
         nick_prefix = "g_"
 
     else:
         if not getattr(settings, "GITHUB_CLIENT_ID", None) or not getattr(settings, "GITHUB_CLIENT_SECRET", None):
-            raise HTTPException(status_code=500, detail="GitHub OAuth is not configured")
+            raise HTTPException(status_code=500, detail="OAUTH_CALLBACK_FAILED: GitHub OAuth not configured")
 
-        # 1) code -> access_token
         token_url = "https://github.com/login/oauth/access_token"
         data = {
             "client_id": settings.GITHUB_CLIENT_ID,
@@ -242,33 +257,35 @@ async def oauth_callback(
             token_resp = await client.post(token_url, data=data, headers=headers)
 
             if token_resp.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Failed to obtain token: {token_resp.status_code}")
+                raise HTTPException(
+                    status_code=400, detail=f"OAUTH_ERROR: token exchange failed ({token_resp.status_code})"
+                )
 
             token_json = token_resp.json()
-            access_token = token_json.get("access_token")
-            if not access_token:
-                raise HTTPException(status_code=400, detail="no access_token")
+            gh_access_token = token_json.get("access_token")
+            if not gh_access_token:
+                raise HTTPException(status_code=400, detail="OAUTH_ERROR: no access_token")
 
             # 2) /user
             user_resp = await client.get(
                 "https://api.github.com/user",
-                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+                headers={"Authorization": f"Bearer {gh_access_token}", "Accept": "application/vnd.github+json"},
             )
             if user_resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to fetch GitHub user")
+                raise HTTPException(status_code=400, detail="OAUTH_ERROR: Failed to fetch GitHub user")
             user_json = user_resp.json()
             gh_id = user_json.get("id")
             if gh_id is None:
-                raise HTTPException(status_code=400, detail="No id from GitHub")
+                raise HTTPException(status_code=400, detail="OAUTH_ERROR: No id from GitHub")
             provider_sub = str(gh_id)
 
             # 3) /user/emails
             emails_resp = await client.get(
                 "https://api.github.com/user/emails",
-                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+                headers={"Authorization": f"Bearer {gh_access_token}", "Accept": "application/vnd.github+json"},
             )
             if emails_resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to fetch GitHub emails")
+                raise HTTPException(status_code=400, detail="OAUTH_ERROR: Failed to fetch GitHub emails")
 
             emails = emails_resp.json()
             email = ""
@@ -279,7 +296,7 @@ async def oauth_callback(
                 email = chosen.get("email") or ""
 
             if not email:
-                raise HTTPException(status_code=400, detail="No email from GitHub")
+                raise HTTPException(status_code=400, detail="OAUTH_ERROR: No email from GitHub")
 
         provider_enum = AuthProvider.github
         nick_prefix = "gh_"
@@ -309,9 +326,20 @@ async def oauth_callback(
             is_new_user = False
 
     # -------------------------
-    # refresh 쿠키 + redirect
+    # access(세션 쿠키) + refresh(영속 쿠키) + 프런트 이동
     # -------------------------
     now = datetime.now(timezone.utc)
+
+    # access 토큰(짧게)
+    access_payload = {
+        "sub": str(user.id),
+        "typ": "access",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=ACCESS_MINUTES)).timestamp()),
+    }
+    access_token = jwt.encode(access_payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    # refresh 토큰(영속)
     refresh_payload = {
         "sub": str(user.id),
         "typ": "refresh",
@@ -325,22 +353,38 @@ async def oauth_callback(
     sep = "&" if "?" in redirect_uri else "?"
     final_redirect = f"{redirect_uri}{sep}is_new_user={str(is_new_user).lower()}"
 
+    # ✅ 명세대로 302로 프런트로 이동
     resp = RedirectResponse(url=final_redirect, status_code=status.HTTP_302_FOUND)
 
     # state 1회용 삭제
     resp.delete_cookie(key=STATE_COOKIE_KEY, path="/api/oauth")
 
-    # refresh는 영속 쿠키
+    # ✅ access: 세션 쿠키 (Max-Age 없음)
+    resp.set_cookie(
+        key=ACCESS_COOKIE_KEY,
+        value=access_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite=samesite,
+        path="/api",
+    )
+
+    # ✅ refresh: 영속 쿠키 (1일/7일)
     resp.set_cookie(
         key=REFRESH_COOKIE_KEY,
         value=refresh_token,
         max_age=refresh_max_age,
         httponly=True,
         secure=secure_cookie,
-        samesite="lax",
+        samesite=samesite,
         path="/api",
     )
 
+    # 캐시 방지(권장)
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Pragma"] = "no-cache"
+
+    # 이벤트 기록
     if is_new_user:
         create_event(
             session,
