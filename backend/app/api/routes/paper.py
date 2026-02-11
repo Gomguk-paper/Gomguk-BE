@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Literal
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlmodel import select
@@ -14,7 +15,7 @@ from app.crud.paper import (
     get_paper_out_by_id,
 )
 from app.models.paper import Paper
-from app.models.user import UserPaperLike, UserPaperScrap
+from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperOut, PaperItem, PagedPapersResponse
 
 router = APIRouter()
@@ -28,6 +29,10 @@ def _get_paper_or_404(session: SessionDep, paper_id: int) -> Paper:
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     return paper
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 # =========================
@@ -285,3 +290,46 @@ def get_feed(
         items=[PaperItem(paper=o) for o in outs],
         count=total,
     )
+
+
+@router.put(
+    "/{paper_id}/view",
+    summary="읽음(조회) 기록 추가/갱신 (멱등)",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        404: {"description": "PAPER_NOT_FOUND"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def mark_paper_viewed(session: SessionDep, user: CurrentUser, paper_id: int):
+    _get_paper_or_404(session, paper_id)
+
+    existing = session.exec(
+        select(UserPaperView).where(
+            UserPaperView.user_id == user.id,
+            UserPaperView.paper_id == paper_id,
+        )
+    ).first()
+
+    now = utcnow()
+    if existing:
+        existing.last_viewed_at = now
+    else:
+        session.add(
+            UserPaperView(
+                user_id=user.id,
+                paper_id=paper_id,
+                last_viewed_at=now,
+            )
+        )
+
+    create_event(
+        session,
+        user_id=user.id,
+        event_type=EventType.view,
+        meta={"paper_id": paper_id, "source": "paper_view"},
+    )
+
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
