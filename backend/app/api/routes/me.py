@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from datetime import datetime
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, select as sa_select
 from sqlmodel import select
 
 from app.api.deps import SessionDep, CurrentUser
-from app.models.paper import Paper
+from app.crud.paper import get_paper_outs_by_ids
 from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
+from app.schemas.paper import PaperItem, PagedPapersResponse
 
 router = APIRouter()
 
@@ -25,50 +25,6 @@ class MeResponse(BaseModel):
     name: str
     profile_image: Optional[str] = None
     meta: dict[str, Any] = Field(default_factory=dict)
-
-
-class PaperOut(BaseModel):
-    id: int
-    title: str
-    short: str
-    authors: list[str]
-    year: int
-    image_url: str
-    raw_url: str
-    source: str
-
-
-class PaperItem(BaseModel):
-    paper: PaperOut
-
-
-class PagedPapersResponse(BaseModel):
-    items: list[PaperItem]
-    count: int
-
-
-# =========================
-# Helpers
-# =========================
-def _source_to_str(source: Any) -> str:
-    return source.value if hasattr(source, "value") else str(source)
-
-
-def _to_year(published_at: datetime) -> int:
-    return published_at.year
-
-
-def _to_paper_out(p: Paper) -> PaperOut:
-    return PaperOut(
-        id=p.id,
-        title=p.title,
-        short=p.short,
-        authors=p.authors,
-        year=_to_year(p.published_at),
-        image_url=p.image_url,
-        raw_url=p.raw_url,
-        source=_source_to_str(p.source),
-    )
 
 
 # =========================
@@ -89,7 +45,7 @@ def me(user: CurrentUser):
         provider=user.provider,
         email=user.email,
         name=user.name,
-        profile_image=user.profile_image,  # DB에 절대 URL 저장 전제
+        profile_image=user.profile_image,
         meta=user.meta or {},
     )
 
@@ -109,25 +65,24 @@ def get_liked_papers(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    # count = 해당 목록의 전체 개수(페이징 적용 전)
     total = session.exec(
-        select(func.count())
+        sa_select(func.count())
         .select_from(UserPaperLike)
         .where(UserPaperLike.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
-    stmt = (
-        select(Paper)
-        .join(UserPaperLike, UserPaperLike.paper_id == Paper.id)
+    paper_ids = session.exec(
+        select(UserPaperLike.paper_id)
         .where(UserPaperLike.user_id == user.id)
         .order_by(UserPaperLike.created_at.desc())
         .offset(offset)
         .limit(limit)
-    )
-    papers = session.exec(stmt).all()
+    ).all()
+
+    outs = get_paper_outs_by_ids(session, user_id=user.id, paper_ids=list(paper_ids))
 
     return PagedPapersResponse(
-        items=[PaperItem(paper=_to_paper_out(p)) for p in papers],
+        items=[PaperItem(paper=o) for o in outs],
         count=total,
     )
 
@@ -147,25 +102,24 @@ def get_saved_papers(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    # count = 해당 목록의 전체 개수(페이징 적용 전)
     total = session.exec(
-        select(func.count())
+        sa_select(func.count())
         .select_from(UserPaperScrap)
         .where(UserPaperScrap.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
-    stmt = (
-        select(Paper)
-        .join(UserPaperScrap, UserPaperScrap.paper_id == Paper.id)
+    paper_ids = session.exec(
+        select(UserPaperScrap.paper_id)
         .where(UserPaperScrap.user_id == user.id)
         .order_by(UserPaperScrap.created_at.desc())
         .offset(offset)
         .limit(limit)
-    )
-    papers = session.exec(stmt).all()
+    ).all()
+
+    outs = get_paper_outs_by_ids(session, user_id=user.id, paper_ids=list(paper_ids))
 
     return PagedPapersResponse(
-        items=[PaperItem(paper=_to_paper_out(p)) for p in papers],
+        items=[PaperItem(paper=o) for o in outs],
         count=total,
     )
 
@@ -185,24 +139,23 @@ def get_read_papers(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    # count = 해당 목록의 전체 개수(페이징 적용 전)
     total = session.exec(
-        select(func.count())
+        sa_select(func.count())
         .select_from(UserPaperView)
         .where(UserPaperView.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
-    stmt = (
-        select(Paper)
-        .join(UserPaperView, UserPaperView.paper_id == Paper.id)
+    paper_ids = session.exec(
+        select(UserPaperView.paper_id)
         .where(UserPaperView.user_id == user.id)
         .order_by(UserPaperView.last_viewed_at.desc())
         .offset(offset)
         .limit(limit)
-    )
-    papers = session.exec(stmt).all()
+    ).all()
+
+    outs = get_paper_outs_by_ids(session, user_id=user.id, paper_ids=list(paper_ids))
 
     return PagedPapersResponse(
-        items=[PaperItem(paper=_to_paper_out(p)) for p in papers],
+        items=[PaperItem(paper=o) for o in outs],
         count=total,
     )
