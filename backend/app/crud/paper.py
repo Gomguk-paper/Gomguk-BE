@@ -26,7 +26,7 @@ def get_like_count_by_paper_id(session: SessionDep, paper_id: int) -> int:
         sa_select(func.count())
         .select_from(UserPaperLike)
         .where(UserPaperLike.paper_id == paper_id)
-    ).one()
+    ).scalar_one()
 
 
 def get_scrap_count_by_paper_id(session: SessionDep, paper_id: int) -> int:
@@ -34,7 +34,7 @@ def get_scrap_count_by_paper_id(session: SessionDep, paper_id: int) -> int:
         sa_select(func.count())
         .select_from(UserPaperScrap)
         .where(UserPaperScrap.paper_id == paper_id)
-    ).one()
+    ).scalar_one()
 
 
 # =========================
@@ -283,7 +283,7 @@ def list_paper_outs_page(
 
     # total (필터 반영)
     subq = base.subquery()
-    total = session.exec(sa_select(func.count()).select_from(subq)).one()
+    total = session.exec(sa_select(func.count()).select_from(subq)).scalar_one()
 
     return get_paper_outs_by_ids(session, user_id=user_id, paper_ids=paper_ids), total
 

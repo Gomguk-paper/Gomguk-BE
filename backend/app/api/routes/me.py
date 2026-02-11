@@ -69,7 +69,7 @@ def get_liked_papers(
         sa_select(func.count())
         .select_from(UserPaperLike)
         .where(UserPaperLike.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
     paper_ids = session.exec(
         select(UserPaperLike.paper_id)
@@ -106,7 +106,7 @@ def get_saved_papers(
         sa_select(func.count())
         .select_from(UserPaperScrap)
         .where(UserPaperScrap.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
     paper_ids = session.exec(
         select(UserPaperScrap.paper_id)
@@ -143,7 +143,7 @@ def get_read_papers(
         sa_select(func.count())
         .select_from(UserPaperView)
         .where(UserPaperView.user_id == user.id)
-    ).one()
+    ).scalar_one()
 
     paper_ids = session.exec(
         select(UserPaperView.paper_id)
