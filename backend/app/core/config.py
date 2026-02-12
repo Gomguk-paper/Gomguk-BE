@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str
 
     def all_cors_origins(self) -> list[str]:
-        return [self.FRONTEND_HOST]
+        return [self.FRONTEND_HOST, self.BACKEND_PUBLIC_URL]
 
     PROJECT_NAME: str
     DATABASE_URL: str
