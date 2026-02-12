@@ -6,7 +6,10 @@ from app.core.config import settings
 import app.models
 
 
-app = FastAPI()
+app = FastAPI(
+    root_path="/api",
+    title="Gomguk API"
+)
 
 app.add_middleware(
     CORSMiddleware,

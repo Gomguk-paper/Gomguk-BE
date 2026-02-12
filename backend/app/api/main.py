@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import paper, summary, tags, oauth, me, auth, add, event
 
 
-api_router = APIRouter(prefix="/api")
+api_router = APIRouter()
 
 api_router.include_router(paper.router, prefix="/paper", tags=["paper"])
 api_router.include_router(summary.router, prefix="/summary", tags=["summary"])

@@ -1,0 +1,77 @@
+{
+  "gemini_config": {
+    "model_name": "gemini-3-flash-preview"
+  },
+  "execution_settings": {
+    "concurrency_limit": 20,
+    "max_retries": 5,
+    "initial_delay": 1.0,
+    "backoff_factor": 2.0
+  },
+  "recommendation_settings": {
+    "daily_target_count": 200
+  },
+  "prompts": {
+    "system_prompt": [
+      "당신은 컴퓨터 과학 분야의 수석 편집자(Senior Editor)입니다.",
+      "주어진 논문의 '제목'과 '초록'을 보고, **2026년 현재 시점**에서 개발자나 연구자가 읽어볼 만한 가치가 있는지 판단하세요.",
+      "",
+      "[결정 기준]",
+      "- **Recommend (True)**: 현재 트렌드에 부합하거나, 강력한 통찰력을 제공하거나, 실무에 즉시 적용 가능한 경우.",
+      "- **Reject (False)**: 너무 오래된 기법이거나, 내용이 부실하거나, 뻔한 내용인 경우."
+    ],
+    "user_prompt_template": [
+      "Title: {title}",
+      "Abstract: {abstract}",
+      "Published Year: {year}",
+      "",
+      "위 논문을 평가하여 다음 JSON 포맷으로 응답하세요:",
+      "{{",
+      "    \"recommendation\": (true 또는 false),",
+      "    \"reason\": (결정 사유를 한국어 한 문장으로 요약),",
+      "}}"
+    ]
+  },
+  "categories": {
+    "cs.AI": "Artificial Intelligence",
+    "cs.AR": "Hardware Architecture",
+    "cs.CC": "Computational Complexity",
+    "cs.CE": "Computational Engineering, Finance, and Science",
+    "cs.CG": "Computational Geometry",
+    "cs.CL": "Computation and Language",
+    "cs.CR": "Cryptography and Security",
+    "cs.CV": "Computer Vision and Pattern Recognition",
+    "cs.CY": "Computers and Society",
+    "cs.DB": "Databases",
+    "cs.DC": "Distributed, Parallel, and Cluster Computing",
+    "cs.DL": "Digital Libraries",
+    "cs.DM": "Discrete Mathematics",
+    "cs.DS": "Data Structures and Algorithms",
+    "cs.ET": "Emerging Technologies",
+    "cs.FL": "Formal Languages and Automata Theory",
+    "cs.GL": "General Literature",
+    "cs.GR": "Graphics",
+    "cs.GT": "Computer Science and Game Theory",
+    "cs.HC": "Human-Computer Interaction",
+    "cs.IR": "Information Retrieval",
+    "cs.IT": "Information Theory",
+    "cs.LG": "Machine Learning",
+    "cs.LO": "Logic in Computer Science",
+    "cs.MA": "Multiagent Systems",
+    "cs.MM": "Multimedia",
+    "cs.MS": "Mathematical Software",
+    "cs.NA": "Numerical Analysis",
+    "cs.NE": "Neural and Evolutionary Computing",
+    "cs.NI": "Networking and Internet Architecture",
+    "cs.OH": "Other Computer Science",
+    "cs.OS": "Operating Systems",
+    "cs.PF": "Performance",
+    "cs.PL": "Programming Languages",
+    "cs.RO": "Robotics",
+    "cs.SC": "Symbolic Computation",
+    "cs.SD": "Sound",
+    "cs.SE": "Software Engineering",
+    "cs.SI": "Social and Information Networks",
+    "cs.SY": "Systems and Control"
+  }
+}
