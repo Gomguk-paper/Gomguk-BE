@@ -19,3 +19,6 @@ htmlcov/
 .cache/
 
 docker-compose.yml
+# local backups
+backend/app_backup_*.sql
+backend/app_backup_*.sql.gz
