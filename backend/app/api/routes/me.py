@@ -18,6 +18,12 @@ router = APIRouter()
 # =========================
 # Response Schemas
 # =========================
+class MeCounts(BaseModel):
+    liked: int = 0
+    saved: int = 0
+    read: int = 0
+
+
 class MeResponse(BaseModel):
     id: int
     provider: str
@@ -25,6 +31,7 @@ class MeResponse(BaseModel):
     name: str
     profile_image: Optional[str] = None
     meta: dict[str, Any] = Field(default_factory=dict)
+    counts: MeCounts = Field(default_factory=MeCounts)
 
 
 # =========================
@@ -39,7 +46,20 @@ class MeResponse(BaseModel):
         500: {"description": "Internal Server Error"},
     },
 )
-def me(user: CurrentUser):
+def me(
+    session: SessionDep,
+    user: CurrentUser
+):
+    liked_count = session.exec(
+        select(func.count()).select_from(UserPaperLike).where(UserPaperLike.user_id == user.id)
+    ).scalar_one()
+    saved_count = session.exec(
+        select(func.count()).select_from(UserPaperScrap).where(UserPaperScrap.user_id == user.id)
+    ).scalar_one()
+    read_count = session.exec(
+        select(func.count()).select_from(UserPaperView).where(UserPaperView.user_id == user.id)
+    ).scalar_one()
+
     return MeResponse(
         id=user.id,
         provider=user.provider,
@@ -47,6 +67,7 @@ def me(user: CurrentUser):
         name=user.name,
         profile_image=user.profile_image,
         meta=user.meta or {},
+        counts=MeCounts(liked=liked_count, saved=saved_count, read=read_count),
     )
 
 
