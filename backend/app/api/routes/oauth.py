@@ -374,7 +374,7 @@ async def oauth_callback(
     refresh_max_age = int(timedelta(days=ttl_days).total_seconds())
 
     sep = "&" if "?" in redirect_uri else "?"
-    final_redirect = f"{redirect_uri}{sep}is_new_user={str(is_new_user).lower()}"
+    final_redirect = f"{redirect_uri}{sep}is_new_user={str(is_new_user).lower()}&access_token={access_token}"
 
     resp = RedirectResponse(url=final_redirect, status_code=status.HTTP_302_FOUND)
 

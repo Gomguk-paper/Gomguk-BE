@@ -35,6 +35,10 @@ def _auth_required() -> None:
 def get_current_user(request: Request, session: SessionDep) -> User:
     token = request.cookies.get(ACCESS_COOKIE_KEY)
     if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
         _auth_required()
 
     try:
