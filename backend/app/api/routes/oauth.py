@@ -355,12 +355,7 @@ async def oauth_callback(
                 raise HTTPException(status_code=409, detail="user create error")
             is_new_user = False
 
-    # -------------------------
-    # ✅ 기존 TokenPayload 규격에 맞춤:
-    # - sub: int
-    # - iat/exp: int
-    # - typ 제거
-    # -------------------------
+
     now = datetime.now(timezone.utc)
 
     access_payload = {

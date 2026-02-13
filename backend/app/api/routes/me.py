@@ -52,13 +52,13 @@ def me(
 ):
     liked_count = session.exec(
         select(func.count()).select_from(UserPaperLike).where(UserPaperLike.user_id == user.id)
-    ).scalar_one()
+    ).one()
     saved_count = session.exec(
         select(func.count()).select_from(UserPaperScrap).where(UserPaperScrap.user_id == user.id)
-    ).scalar_one()
+    ).one()
     read_count = session.exec(
         select(func.count()).select_from(UserPaperView).where(UserPaperView.user_id == user.id)
-    ).scalar_one()
+    ).one()
 
     return MeResponse(
         id=user.id,
