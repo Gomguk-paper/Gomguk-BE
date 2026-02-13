@@ -41,7 +41,7 @@ def _cookie_samesite_and_secure(backend_public_url: str) -> tuple[str, bool]:
     - https 운영환경: secure=True, samesite=lax
     """
     secure_cookie = backend_public_url.startswith("https://")
-    return "lax", secure_cookie  # ✅ 버그 수정: 계산한 secure_cookie 반환
+    return "lax", secure_cookie
 
 
 # =========================================================
@@ -257,7 +257,7 @@ def oauth_login(
         httponly=True,
         secure=secure_cookie,
         samesite=samesite,
-        path="/api/oauth",
+        path="/api",
     )
     return resp
 
@@ -378,7 +378,7 @@ async def oauth_callback(
 
     resp = RedirectResponse(url=final_redirect, status_code=status.HTTP_302_FOUND)
 
-    resp.delete_cookie(key=STATE_COOKIE_KEY, path="/api/oauth")
+    resp.delete_cookie(key=STATE_COOKIE_KEY, path="/api")
 
     resp.set_cookie(
         key=ACCESS_COOKIE_KEY,
