@@ -1,0 +1,109 @@
+name: Test Prompt Contract
+
+on:
+  pull_request:
+    paths:
+      - "dags/modules/update/multi_summary_config.json"
+      - "backend/app/core/enums.py"
+      - "dags/modules/update/multi_summary_generator.py"
+      - ".github/workflows/test-prompt-contract.yml"
+      - "backend/tests/test_multi_prompt_profile_contract.py"
+  push:
+    branches:
+      - master
+    paths:
+      - "dags/modules/update/multi_summary_config.json"
+      - "backend/app/core/enums.py"
+      - "dags/modules/update/multi_summary_generator.py"
+      - ".github/workflows/test-prompt-contract.yml"
+      - "backend/tests/test_multi_prompt_profile_contract.py"
+  workflow_dispatch:
+
+jobs:
+  prompt-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Validate prompt profiles
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+
+          root = Path(".").resolve()
+          config_path = root / "dags" / "modules" / "update" / "multi_summary_config.json"
+          enums_path = root / "backend" / "app" / "core" / "enums.py"
+
+          def fail(msg):
+              raise SystemExit(f"[prompt-contract] {msg}")
+
+          if not config_path.exists():
+              fail(f"missing config: {config_path}")
+          if not enums_path.exists():
+              fail(f"missing enums file: {enums_path}")
+
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          profiles = config.get("prompt_profiles")
+          if not isinstance(profiles, list) or not profiles:
+              fail("prompt_profiles must be a non-empty list")
+
+          styles = []
+          for p in profiles:
+              if not isinstance(p, dict):
+                  fail("each profile must be an object")
+              style = p.get("style")
+              if not style:
+                  fail("profile.style is required")
+              styles.append(style)
+
+              system_prompt = p.get("system_prompt")
+              user_prompt_template = p.get("user_prompt_template")
+              if not isinstance(system_prompt, list) or not system_prompt:
+                  fail(f"style={style} system_prompt must be non-empty list")
+              if not isinstance(user_prompt_template, list) or not user_prompt_template:
+                  fail(f"style={style} user_prompt_template must be non-empty list")
+
+              text = "\n".join(user_prompt_template)
+              if "{title}" not in text:
+                  fail(f"style={style} missing {{title}} placeholder")
+              if "{abstract}" not in text:
+                  fail(f"style={style} missing {{abstract}} placeholder")
+
+              output_format = p.get("output_format", "json")
+              if output_format not in {"json", "delimited"}:
+                  fail(f"style={style} invalid output_format={output_format}")
+              if output_format == "delimited":
+                  for marker in ["###TITLE###", "###HOOK###", "###SUMMARY###"]:
+                      if marker not in text:
+                          fail(f"style={style} missing marker {marker}")
+
+          if len(styles) != len(set(styles)):
+              fail("profile style values must be unique")
+
+          tree = ast.parse(enums_path.read_text(encoding="utf-8"))
+          enum_values = set()
+          for node in tree.body:
+              if isinstance(node, ast.ClassDef) and node.name == "SummaryStyle":
+                  for stmt in node.body:
+                      if isinstance(stmt, ast.Assign) and stmt.targets and isinstance(stmt.targets[0], ast.Name):
+                          if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                              enum_values.add(stmt.value.value)
+                  break
+
+          if not enum_values:
+              fail("could not parse SummaryStyle enum values")
+
+          missing = sorted(set(styles) - enum_values)
+          if missing:
+              fail("styles missing in SummaryStyle enum: " + ", ".join(missing))
+
+          print("[prompt-contract] OK")
+          PY
