@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional, Any, Literal
 
-from sqlalchemy import func, select as sa_select
+from sqlalchemy import func, or_, select as sa_select
 from sqlmodel import select
 
 from app.api.deps import SessionDep
@@ -247,7 +247,7 @@ def list_paper_outs_page(
     *,
     user_id: int,
     q: Optional[str],
-    tag: Optional[int],
+    tags: Optional[list[int]],
     source: Optional[Site],
     sort: SortKey,
     limit: int,
@@ -262,15 +262,20 @@ def list_paper_outs_page(
     """
     base = select(Paper)
 
-    if tag is not None:
-        base = (
-            select(Paper)
-            .join(PaperTag, PaperTag.paper_id == Paper.id)
-            .where(PaperTag.tag_id == tag)
+    if tags:
+        normalized_tags = list(dict.fromkeys(tags))
+        tag_subq = (
+            select(PaperTag.paper_id)
+            .where(PaperTag.tag_id.in_(normalized_tags))
+            .group_by(PaperTag.paper_id)
+            .having(func.count(func.distinct(PaperTag.tag_id)) == len(normalized_tags))
+            .subquery()
         )
+        base = base.join(tag_subq, tag_subq.c.paper_id == Paper.id)
 
     if q:
-        base = base.where(Paper.title.ilike(f"%{q}%"))
+        pattern = f"%{q}%"
+        base = base.where(or_(Paper.title.ilike(pattern), Paper.short.ilike(pattern)))
 
     if source is not None:
         base = base.where(Paper.source == source)
@@ -303,7 +308,7 @@ def feed_paper_outs_page(
         session,
         user_id=user_id,
         q=None,
-        tag=None,
+        tags=None,
         source=None,
         sort="recent",
         limit=limit,

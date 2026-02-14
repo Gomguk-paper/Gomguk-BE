@@ -50,8 +50,8 @@ def utcnow() -> datetime:
 def list_papers(
     session: SessionDep,
     user: CurrentUser,
-    q: Optional[str] = Query(None, description="제목 검색 (부분 일치)"),
-    tag: Optional[int] = Query(None, description="태그 id 필터"),
+    q: Optional[str] = Query(None, description="제목/요약(short) 검색 (부분 일치)"),
+    tags: Optional[list[int]] = Query(None, description="태그 id 필터 (복수, AND 조건)"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
     sort: Literal["popular", "recent", "recommend"] = Query(
         "recent",
@@ -60,18 +60,20 @@ def list_papers(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    tag_filters = list(dict.fromkeys(tags or []))
+
     outs, total = list_paper_outs_page(
         session,
         user_id=user.id,
         q=q,
-        tag=tag,
+        tags=tag_filters or None,
         source=source,
         sort=sort,
         limit=limit,
         offset=offset,
     )
 
-    if q or (tag is not None) or (source is not None):
+    if q or tag_filters or (source is not None):
         create_event(
             session,
             user_id=user.id,
@@ -79,7 +81,7 @@ def list_papers(
             meta={
                 "query": q,
                 "filters": {
-                    "tag": tag,
+                    "tags": tag_filters,
                     "source": source.value if source is not None else None,
                 },
                 "sort": sort,
