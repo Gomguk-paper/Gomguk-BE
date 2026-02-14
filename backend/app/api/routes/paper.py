@@ -169,7 +169,7 @@ def like_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        404: {"description": "PAPER_NOT_FOUND or LIKE_NOT_FOUND"},
+        404: {"description": "PAPER_NOT_FOUND"},
         500: {"description": "Internal Server Error"},
     },
 )
@@ -184,7 +184,7 @@ def unlike_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     ).first()
 
     if not existing:
-        raise HTTPException(status_code=404, detail="Like not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     session.delete(existing)
     create_event(
@@ -237,7 +237,7 @@ def scrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        404: {"description": "PAPER_NOT_FOUND or SCRAP_NOT_FOUND"},
+        404: {"description": "PAPER_NOT_FOUND"},
         500: {"description": "Internal Server Error"},
     },
 )
@@ -252,7 +252,7 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     ).first()
 
     if not existing:
-        raise HTTPException(status_code=404, detail="Scrap not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     session.delete(existing)
     create_event(
