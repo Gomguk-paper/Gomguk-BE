@@ -53,9 +53,9 @@ def list_papers(
     q: Optional[str] = Query(None, description="제목 검색 (부분 일치)"),
     tag: Optional[int] = Query(None, description="태그 id 필터"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
-    sort: Literal["popular", "recent", "recommend"] = Query(
+    sort: Literal["popular", "recent"] = Query(
         "recent",
-        description="정렬 옵션(popular=좋아요순, recent=최신순, recommend=추천순(임시로 최신순))",
+        description="정렬 옵션(popular=좋아요순, recent=최신순)",
     ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -89,6 +89,34 @@ def list_papers(
             },
         )
         session.commit()
+
+    return PagedPapersResponse(
+        items=[PaperItem(paper=o) for o in outs],
+        count=total,
+    )
+
+
+@router.get(
+    "/feed",
+    summary="메인 화면 피드 조회 (추천 시스템 기반)",
+    response_model=PagedPapersResponse,
+    responses={
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def get_feed(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    outs, total = feed_paper_outs_page(
+        session,
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+    )
 
     return PagedPapersResponse(
         items=[PaperItem(paper=o) for o in outs],
@@ -262,34 +290,6 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     session.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get(
-    "/feed",
-    summary="메인 화면 피드 조회 (추천 시스템용)",
-    response_model=PagedPapersResponse,
-    responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        500: {"description": "Internal Server Error"},
-    },
-)
-def get_feed(
-    session: SessionDep,
-    user: CurrentUser,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    outs, total = feed_paper_outs_page(
-        session,
-        user_id=user.id,
-        limit=limit,
-        offset=offset,
-    )
-
-    return PagedPapersResponse(
-        items=[PaperItem(paper=o) for o in outs],
-        count=total,
-    )
 
 
 @router.put(
