@@ -1,0 +1,11 @@
+[core]
+# Copy this file to config/airflow.cfg for local/server runtime config.
+# Keep real config values out of Git.
+
+[database]
+# Example:
+# sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@postgres/airflow
+
+[webserver]
+# Example:
+# base_url = http://localhost:8080
