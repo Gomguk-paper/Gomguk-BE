@@ -1,6 +1,7 @@
 # app/schemas/paper.py
 from __future__ import annotations
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 class PaperOut(BaseModel):
@@ -17,6 +18,9 @@ class PaperOut(BaseModel):
     is_scrapped: bool = False
     like_count: int = 0
     scrap_count: int = 0
+    recommend_score: Optional[float] = None
+    trending_score: Optional[float] = None
+    freshness_score: Optional[float] = None
 
 class PaperItem(BaseModel):
     paper: PaperOut
