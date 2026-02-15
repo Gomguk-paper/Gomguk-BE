@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str
     BACKEND_PUBLIC_URL: str
+    MINIO_ROOT_USER: str
+    MINIO_ROOT_PASSWORD: str
 
 
 settings = Settings()
