@@ -290,10 +290,16 @@ def _recommend_paper_ids(
                LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101) AS popularity
         FROM candidates c
         LEFT JOIN (
-            SELECT paper_id, COUNT(*) AS cnt FROM user_paper_likes GROUP BY paper_id
+            SELECT l.paper_id, COUNT(*) AS cnt
+            FROM user_paper_likes l
+            INNER JOIN candidates c2 ON c2.paper_id = l.paper_id
+            GROUP BY l.paper_id
         ) lc ON lc.paper_id = c.paper_id
         LEFT JOIN (
-            SELECT paper_id, COUNT(*) AS cnt FROM user_paper_scraps GROUP BY paper_id
+            SELECT s.paper_id, COUNT(*) AS cnt
+            FROM user_paper_scraps s
+            INNER JOIN candidates c3 ON c3.paper_id = s.paper_id
+            GROUP BY s.paper_id
         ) sc ON sc.paper_id = c.paper_id
     ),
     paper_freshness AS (
