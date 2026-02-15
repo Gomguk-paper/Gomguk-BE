@@ -269,7 +269,7 @@ def _recommend_paper_ids(
         GROUP BY pt.tag_id
     ),
     profile_norm AS (
-        SELECT GREATEST(MAX(preference), 1.0) AS max_pref FROM user_tag_profile
+        SELECT GREATEST(COALESCE(MAX(preference), 0), 1.0) AS max_pref FROM user_tag_profile
     ),
     candidates AS (
         SELECT p.id AS paper_id, p.published_at
@@ -287,7 +287,7 @@ def _recommend_paper_ids(
     ),
     paper_popularity AS (
         SELECT c.paper_id,
-               LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101) AS popularity
+               LEAST(LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101), 1.0) AS popularity
         FROM candidates c
         LEFT JOIN (
             SELECT l.paper_id, COUNT(*) AS cnt
