@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional, Any, Literal
 
-from sqlalchemy import func, select as sa_select
+from sqlalchemy import func, or_, select as sa_select, text as sa_text
 from sqlmodel import select
 
 from app.api.deps import SessionDep
@@ -13,7 +13,7 @@ from app.models.user import UserPaperLike, UserPaperScrap
 from app.schemas.paper import PaperOut
 
 
-SortKey = Literal["popular", "recent", "recommend"]
+SortKey = Literal["popular", "recent"]
 S3_PAPERS_PREFIX = "s3://papers/"
 PAPERS_PUBLIC_BASE = "http://gomguk.cloud/papers/"
 
@@ -152,6 +152,7 @@ def get_paper_outs_by_ids(
     user_id: int,
     paper_ids: list[int],
     use_basic_aggro_display: bool = False,
+    scores_map: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> list[PaperOut]:
     """
     paper_ids(한 페이지)를 받아 PaperOut 리스트를 배치로 조립.
@@ -234,6 +235,7 @@ def get_paper_outs_by_ids(
             if points_short:
                 short = points_short
 
+        scores = scores_map.get(pid) if scores_map else None
         outs.append(
             PaperOut(
                 id=p.id,
@@ -249,6 +251,9 @@ def get_paper_outs_by_ids(
                 is_scrapped=(pid in scrapped_ids),
                 like_count=like_count_map.get(pid, 0),
                 scrap_count=scrap_count_map.get(pid, 0),
+                recommend_score=round(scores[0], 4) if scores else None,
+                trending_score=round(scores[1], 4) if scores else None,
+                freshness_score=round(scores[2], 4) if scores else None,
             )
         )
 
@@ -256,14 +261,150 @@ def get_paper_outs_by_ids(
 
 
 # =========================
+# Recommendation scoring
+# =========================
+def _recommend_paper_ids(
+    session: SessionDep,
+    *,
+    user_id: int,
+    limit: int,
+    offset: int,
+    q: Optional[str] = None,
+    tag: Optional[int] = None,
+    source: Optional[Site] = None,
+) -> tuple[list[int], int, dict[int, tuple[float, float, float]]]:
+    """
+    추천 점수 기반 논문 ID 반환.
+    score = 0.45 * tag_similarity + 0.25 * popularity + 0.25 * freshness - 0.15 * view_penalty
+
+    Returns:
+        (paper_ids, total, scores_map)
+        scores_map: {paper_id: (recommend_score, trending_score, freshness_score)}
+
+    Cold-start: 이력 0건이면 tag_similarity=0 → 인기+최신 기반 정렬로 자연 fallback.
+    """
+    filters = []
+    params: dict[str, Any] = {"user_id": user_id, "lim": limit, "off": offset}
+
+    if q:
+        filters.append("p.title ILIKE :q")
+        params["q"] = f"%{q}%"
+    if tag is not None:
+        filters.append(
+            "EXISTS (SELECT 1 FROM paper_tags ft"
+            " WHERE ft.paper_id = p.id AND ft.tag_id = :filter_tag)"
+        )
+        params["filter_tag"] = tag
+    if source is not None:
+        filters.append("p.source = :source")
+        params["source"] = _source_to_str(source)
+
+    where_clause = " AND ".join(filters) if filters else "TRUE"
+
+    sql = sa_text(f"""
+    WITH user_tag_profile AS (
+        SELECT pt.tag_id, SUM(w) AS preference
+        FROM (
+            SELECT paper_id, 1.0 AS w FROM user_paper_likes WHERE user_id = :user_id
+            UNION ALL
+            SELECT paper_id, 1.5 AS w FROM user_paper_scraps WHERE user_id = :user_id
+        ) interactions
+        JOIN paper_tags pt ON pt.paper_id = interactions.paper_id
+        GROUP BY pt.tag_id
+    ),
+    profile_norm AS (
+        SELECT GREATEST(COALESCE(MAX(preference), 0), 1.0) AS max_pref FROM user_tag_profile
+    ),
+    candidates AS (
+        SELECT p.id AS paper_id, p.published_at
+        FROM papers p
+        WHERE {where_clause}
+    ),
+    paper_tag_score AS (
+        SELECT c.paper_id,
+               LEAST(COALESCE(SUM(utp.preference), 0) / pn.max_pref, 1.0) AS tag_sim
+        FROM candidates c
+        LEFT JOIN paper_tags pt ON pt.paper_id = c.paper_id
+        LEFT JOIN user_tag_profile utp ON utp.tag_id = pt.tag_id
+        CROSS JOIN profile_norm pn
+        GROUP BY c.paper_id, pn.max_pref
+    ),
+    paper_popularity AS (
+        SELECT c.paper_id,
+               LEAST(LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101), 1.0) AS popularity
+        FROM candidates c
+        LEFT JOIN (
+            SELECT l.paper_id, COUNT(*) AS cnt
+            FROM user_paper_likes l
+            INNER JOIN candidates c2 ON c2.paper_id = l.paper_id
+            GROUP BY l.paper_id
+        ) lc ON lc.paper_id = c.paper_id
+        LEFT JOIN (
+            SELECT s.paper_id, COUNT(*) AS cnt
+            FROM user_paper_scraps s
+            INNER JOIN candidates c3 ON c3.paper_id = s.paper_id
+            GROUP BY s.paper_id
+        ) sc ON sc.paper_id = c.paper_id
+    ),
+    paper_freshness AS (
+        SELECT c.paper_id,
+               1.0 / POWER(1 + EXTRACT(EPOCH FROM (NOW() - c.published_at)) / 86400.0, 0.5) AS freshness
+        FROM candidates c
+    ),
+    paper_view_penalty AS (
+        SELECT c.paper_id,
+               CASE
+                   WHEN v.last_viewed_at IS NULL THEN 0
+                   WHEN v.last_viewed_at > NOW() - INTERVAL '24 hours' THEN 1.0
+                   WHEN v.last_viewed_at > NOW() - INTERVAL '7 days' THEN 0.5
+                   ELSE 0.2
+               END AS view_pen
+        FROM candidates c
+        LEFT JOIN user_paper_views v
+            ON v.paper_id = c.paper_id AND v.user_id = :user_id
+    ),
+    scored AS (
+        SELECT
+            ts.paper_id,
+            0.45 * COALESCE(ts.tag_sim, 0)
+            + 0.25 * COALESCE(pp.popularity, 0)
+            + 0.25 * COALESCE(pf.freshness, 0)
+            - 0.15 * COALESCE(vp.view_pen, 0) AS score,
+            COALESCE(pp.popularity, 0) AS trending,
+            COALESCE(pf.freshness, 0) AS freshness
+        FROM paper_tag_score ts
+        JOIN paper_popularity pp ON pp.paper_id = ts.paper_id
+        JOIN paper_freshness pf ON pf.paper_id = ts.paper_id
+        JOIN paper_view_penalty vp ON vp.paper_id = ts.paper_id
+    )
+    SELECT paper_id, score, COUNT(*) OVER() AS total, trending, freshness
+    FROM scored
+    ORDER BY score DESC, paper_id DESC
+    OFFSET :off LIMIT :lim
+    """)
+
+    rows = session.execute(sql, params).all()
+
+    if not rows:
+        return [], 0, {}
+
+    paper_ids = [row[0] for row in rows]
+    total = rows[0][2]
+    # {paper_id: (recommend_score, trending_score, freshness_score)}
+    scores_map = {
+        row[0]: (float(row[1]), float(row[3]), float(row[4]))
+        for row in rows
+    }
+
+    return paper_ids, total, scores_map
+
+
+# =========================
 # Sorting (only for /papers/)
 # =========================
 def _apply_list_sort(stmt, *, sort: SortKey):
     """
-    /papers/ 전용 정렬
-    - popular: 좋아요 수 desc (동률이면 추가 정렬 없음)
-    - recent: published_at desc, id desc
-    - recommend: (임시) recent 동일
+    /papers/ 전용 정렬 (popular / recent)
     """
     if sort == "popular":
         like_counts = (
@@ -279,19 +420,19 @@ def _apply_list_sort(stmt, *, sort: SortKey):
             like_counts.c.like_cnt.desc().nullslast()
         )
 
-    # recommend는 아직 미구현 → recent 동일
+    # recent (default)
     return stmt.order_by(Paper.published_at.desc(), Paper.id.desc())
 
 
 # =========================
-# Pages: /papers/ and /papers/feed (temporary = recent)
+# Pages: /papers/ and /papers/feed
 # =========================
 def list_paper_outs_page(
     session: SessionDep,
     *,
     user_id: int,
     q: Optional[str],
-    tag: Optional[int],
+    tags: Optional[list[int]],
     source: Optional[Site],
     sort: SortKey,
     limit: int,
@@ -301,21 +442,26 @@ def list_paper_outs_page(
     """
     /papers/ 목록 조회
     - 필터(q/tag/source) 적용
-    - sort 적용(popular/recent/recommend(=recent))
+    - sort 적용(popular/recent)
     - limit/offset 페이징
     - PaperOut은 배치로 조립
     """
     base = select(Paper)
 
-    if tag is not None:
-        base = (
-            select(Paper)
-            .join(PaperTag, PaperTag.paper_id == Paper.id)
-            .where(PaperTag.tag_id == tag)
+    if tags:
+        normalized_tags = list(dict.fromkeys(tags))
+        tag_subq = (
+            select(PaperTag.paper_id)
+            .where(PaperTag.tag_id.in_(normalized_tags))
+            .group_by(PaperTag.paper_id)
+            .having(func.count(func.distinct(PaperTag.tag_id)) == len(normalized_tags))
+            .subquery()
         )
+        base = base.join(tag_subq, tag_subq.c.paper_id == Paper.id)
 
     if q:
-        base = base.where(Paper.title.ilike(f"%{q}%"))
+        pattern = f"%{q}%"
+        base = base.where(or_(Paper.title.ilike(pattern), Paper.short.ilike(pattern)))
 
     if source is not None:
         base = base.where(Paper.source == source)
@@ -349,18 +495,19 @@ def feed_paper_outs_page(
     offset: int,
 ) -> tuple[list[PaperOut], int]:
     """
-    /papers/feed 임시 구현:
-    - 추천시스템 아직 없음 → /papers/의 recent와 동일하게 최신순 페이징
+    /papers/feed — 추천 점수 기반 개인화 피드.
+    Cold-start 사용자는 인기+최신 기반으로 자연 fallback.
     """
-    outs, total = list_paper_outs_page(
+    paper_ids, total, scores_map = _recommend_paper_ids(
         session,
         user_id=user_id,
-        q=None,
-        tag=None,
-        source=None,
-        sort="recent",
         limit=limit,
         offset=offset,
-        use_basic_aggro_display=False,
     )
-    return outs, total
+    return get_paper_outs_by_ids(
+        session,
+        user_id=user_id,
+        paper_ids=paper_ids,
+        use_basic_aggro_display=False,
+        scores_map=scores_map,
+    ), total

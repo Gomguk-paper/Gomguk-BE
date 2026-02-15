@@ -50,21 +50,23 @@ def utcnow() -> datetime:
 def list_papers(
     session: SessionDep,
     user: CurrentUser,
-    q: Optional[str] = Query(None, description="제목 검색 (부분 일치)"),
-    tag: Optional[int] = Query(None, description="태그 id 필터"),
+    q: Optional[str] = Query(None, description="제목/요약(short) 검색 (부분 일치)"),
+    tags: Optional[list[int]] = Query(None, description="태그 id 필터 (복수, AND 조건)"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
-    sort: Literal["popular", "recent", "recommend"] = Query(
+    sort: Literal["popular", "recent"] = Query(
         "recent",
-        description="정렬 옵션(popular=좋아요순, recent=최신순, recommend=추천순(임시로 최신순))",
+        description="정렬 옵션(popular=좋아요순, recent=최신순)",
     ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    tag_filters = list(dict.fromkeys(tags or []))
+
     outs, total = list_paper_outs_page(
         session,
         user_id=user.id,
         q=q,
-        tag=tag,
+        tags=tag_filters or None,
         source=source,
         sort=sort,
         limit=limit,
@@ -72,7 +74,7 @@ def list_papers(
         use_basic_aggro_display=True,
     )
 
-    if q or (tag is not None) or (source is not None):
+    if q or tag_filters or (source is not None):
         create_event(
             session,
             user_id=user.id,
@@ -80,7 +82,7 @@ def list_papers(
             meta={
                 "query": q,
                 "filters": {
-                    "tag": tag,
+                    "tags": tag_filters,
                     "source": source.value if source is not None else None,
                 },
                 "sort": sort,
@@ -90,6 +92,34 @@ def list_papers(
             },
         )
         session.commit()
+
+    return PagedPapersResponse(
+        items=[PaperItem(paper=o) for o in outs],
+        count=total,
+    )
+
+
+@router.get(
+    "/feed",
+    summary="메인 화면 피드 조회 (추천 시스템 기반)",
+    response_model=PagedPapersResponse,
+    responses={
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def get_feed(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    outs, total = feed_paper_outs_page(
+        session,
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+    )
 
     return PagedPapersResponse(
         items=[PaperItem(paper=o) for o in outs],
@@ -168,7 +198,7 @@ def like_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        404: {"description": "PAPER_NOT_FOUND or LIKE_NOT_FOUND"},
+        404: {"description": "PAPER_NOT_FOUND"},
         500: {"description": "Internal Server Error"},
     },
 )
@@ -183,7 +213,7 @@ def unlike_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     ).first()
 
     if not existing:
-        raise HTTPException(status_code=404, detail="Like not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     session.delete(existing)
     create_event(
@@ -236,7 +266,7 @@ def scrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        404: {"description": "PAPER_NOT_FOUND or SCRAP_NOT_FOUND"},
+        404: {"description": "PAPER_NOT_FOUND"},
         500: {"description": "Internal Server Error"},
     },
 )
@@ -251,7 +281,7 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     ).first()
 
     if not existing:
-        raise HTTPException(status_code=404, detail="Scrap not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     session.delete(existing)
     create_event(
@@ -263,34 +293,6 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
     session.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get(
-    "/feed",
-    summary="메인 화면 피드 조회 (추천 시스템용)",
-    response_model=PagedPapersResponse,
-    responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
-        500: {"description": "Internal Server Error"},
-    },
-)
-def get_feed(
-    session: SessionDep,
-    user: CurrentUser,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-):
-    outs, total = feed_paper_outs_page(
-        session,
-        user_id=user.id,
-        limit=limit,
-        offset=offset,
-    )
-
-    return PagedPapersResponse(
-        items=[PaperItem(paper=o) for o in outs],
-        count=total,
-    )
 
 
 @router.put(

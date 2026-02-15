@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@openai/codex": "^0.101.0",
+    "0g": "^0.4.2"
+  }
+}

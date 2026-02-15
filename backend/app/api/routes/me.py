@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select as sa_select
 from sqlmodel import select
 
 from app.api.deps import SessionDep, CurrentUser
+from app.core.storage import profile_image_to_public_url, upload_user_profile_png
 from app.crud.paper import get_paper_outs_by_ids
 from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperItem, PagedPapersResponse
@@ -32,6 +33,11 @@ class MeResponse(BaseModel):
     profile_image: Optional[str] = None
     meta: dict[str, Any] = Field(default_factory=dict)
     counts: MeCounts = Field(default_factory=MeCounts)
+
+
+class ProfileImageUpdateResponse(BaseModel):
+    profile_image: str
+    storage_path: str
 
 
 # =========================
@@ -65,10 +71,39 @@ def me(
         provider=user.provider,
         email=user.email,
         name=user.name,
-        profile_image=user.profile_image,
+        profile_image=profile_image_to_public_url(user.profile_image),
         meta=user.meta or {},
         counts=MeCounts(liked=liked_count, saved=saved_count, read=read_count),
     )
+
+
+@router.put(
+    "/profile-image",
+    summary="프로필 이미지 업로드/수정 (PNG only)",
+    response_model=ProfileImageUpdateResponse,
+    responses={
+        400: {"description": "INVALID_FILE"},
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def upsert_profile_image(
+    session: SessionDep,
+    user: CurrentUser,
+    image: UploadFile = File(..., description="png 파일"),
+):
+    try:
+        storage_path, public_url = upload_user_profile_png(user_id=user.id, image=image)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"INVALID_FILE: {e}")
+    finally:
+        image.file.close()
+
+    user.profile_image = storage_path
+    session.add(user)
+    session.commit()
+
+    return ProfileImageUpdateResponse(profile_image=public_url, storage_path=storage_path)
 
 
 @router.get(
