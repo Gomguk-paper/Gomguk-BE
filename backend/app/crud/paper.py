@@ -7,8 +7,8 @@ from sqlalchemy import func, or_, select as sa_select, text as sa_text
 from sqlmodel import select
 
 from app.api.deps import SessionDep
-from app.core.enums import Site, SummaryStyle
-from app.models.paper import Paper, PaperTag, PaperSummary
+from app.core.enums import Site
+from app.models.paper import Paper, PaperTag
 from app.models.user import UserPaperLike, UserPaperScrap
 from app.schemas.paper import PaperOut
 
@@ -53,32 +53,6 @@ def _papers_s3_to_http(url: Optional[str]) -> Optional[str]:
     if url.startswith(S3_PAPERS_PREFIX):
         return PAPERS_PUBLIC_BASE + url[len(S3_PAPERS_PREFIX):]
     return url
-
-
-def _points_to_short(points: list[str]) -> str:
-    clean_points = [p.strip() for p in points if p and p.strip()]
-    return "\n".join(clean_points)
-
-
-def _get_latest_basic_aggro_summary_map(
-    session: SessionDep,
-    *,
-    paper_ids: list[int],
-) -> dict[int, PaperSummary]:
-    if not paper_ids:
-        return {}
-
-    summary_rows = session.exec(
-        select(PaperSummary)
-        .where(PaperSummary.paper_id.in_(paper_ids), PaperSummary.style == SummaryStyle.basic_aggro)
-        .order_by(PaperSummary.paper_id.asc(), PaperSummary.created_at.desc(), PaperSummary.id.desc())
-    ).all()
-
-    latest_by_paper_id: dict[int, PaperSummary] = {}
-    for row in summary_rows:
-        if row.paper_id not in latest_by_paper_id:
-            latest_by_paper_id[row.paper_id] = row
-    return latest_by_paper_id
 
 
 # =========================
@@ -151,7 +125,6 @@ def get_paper_outs_by_ids(
     *,
     user_id: int,
     paper_ids: list[int],
-    use_basic_aggro_display: bool = False,
     scores_map: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> list[PaperOut]:
     """
@@ -212,35 +185,18 @@ def get_paper_outs_by_ids(
     ).all()
     scrap_count_map = {pid: cnt for pid, cnt in scrap_rows}
 
-    summary_map = (
-        _get_latest_basic_aggro_summary_map(session, paper_ids=paper_ids)
-        if use_basic_aggro_display
-        else {}
-    )
-
     outs: list[PaperOut] = []
     for pid in paper_ids:
         p = paper_map.get(pid)
         if p is None:
             continue
 
-        title = p.title
-        short = p.short
-
-        summary = summary_map.get(pid)
-        if summary is not None:
-            if summary.hook and summary.hook.strip():
-                title = summary.hook.strip()
-            points_short = _points_to_short(summary.points or [])
-            if points_short:
-                short = points_short
-
         scores = scores_map.get(pid) if scores_map else None
         outs.append(
             PaperOut(
                 id=p.id,
-                title=title,
-                short=short,
+                title=p.title,
+                short=p.short,
                 authors=p.authors,
                 year=p.published_at.year,
                 image_url=_papers_s3_to_http(p.image_url),
@@ -437,7 +393,6 @@ def list_paper_outs_page(
     sort: SortKey,
     limit: int,
     offset: int,
-    use_basic_aggro_display: bool = False,
 ) -> tuple[list[PaperOut], int]:
     """
     /papers/ 목록 조회
@@ -476,15 +431,7 @@ def list_paper_outs_page(
     subq = base.subquery()
     total = session.exec(sa_select(func.count()).select_from(subq)).scalar_one()
 
-    return (
-        get_paper_outs_by_ids(
-            session,
-            user_id=user_id,
-            paper_ids=paper_ids,
-            use_basic_aggro_display=use_basic_aggro_display,
-        ),
-        total,
-    )
+    return get_paper_outs_by_ids(session, user_id=user_id, paper_ids=paper_ids), total
 
 
 def feed_paper_outs_page(
@@ -505,9 +452,5 @@ def feed_paper_outs_page(
         offset=offset,
     )
     return get_paper_outs_by_ids(
-        session,
-        user_id=user_id,
-        paper_ids=paper_ids,
-        use_basic_aggro_display=False,
-        scores_map=scores_map,
+        session, user_id=user_id, paper_ids=paper_ids, scores_map=scores_map,
     ), total
