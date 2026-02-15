@@ -11,7 +11,7 @@ from fastapi import UploadFile
 
 from app.core.config import settings
 
-MINIO_ENDPOINT_URL = "http://minio:9000"
+MINIO_ENDPOINT_URL = "http://127.0.0.1:9000"
 MINIO_PROFILE_BUCKET = "profiles"
 MINIO_PROFILE_PUBLIC_READ = True
 MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024
