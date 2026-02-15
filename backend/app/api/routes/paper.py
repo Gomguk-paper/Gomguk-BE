@@ -69,6 +69,7 @@ def list_papers(
         sort=sort,
         limit=limit,
         offset=offset,
+        use_basic_aggro_display=True,
     )
 
     if q or (tag is not None) or (source is not None):

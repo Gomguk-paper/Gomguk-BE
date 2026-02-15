@@ -5,6 +5,7 @@ from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from pydantic import ValidationError
 from sqlmodel import Session
@@ -15,6 +16,7 @@ from app.models import User
 from app.schemas.token_payload import TokenPayload
 
 ACCESS_COOKIE_KEY = "access_token"
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -32,12 +34,21 @@ def _auth_required() -> None:
     )
 
 
-def get_current_user(request: Request, session: SessionDep) -> User:
+def get_current_user(
+    request: Request,
+    session: SessionDep,
+    bearer_credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
     token = request.cookies.get(ACCESS_COOKIE_KEY)
+    if not token and bearer_credentials:
+        token = bearer_credentials.credentials.strip()
+        # Swagger authorize input may include "Bearer " prefix by mistake.
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+            token = auth_header[7:].strip()
     if not token:
         _auth_required()
 
