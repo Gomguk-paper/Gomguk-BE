@@ -1,0 +1,48 @@
+from datetime import datetime, timedelta
+from airflow.decorators import dag, task
+
+default_args = {
+    "owner": "dongbin",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=5),
+}
+
+
+@dag(
+    dag_id="papers_multi_prompt_summary",
+    default_args=default_args,
+    start_date=datetime(2024, 1, 1),
+    schedule=None,
+    catchup=False,
+    tags=["papers", "summary", "multi-prompt"],
+)
+def paper_multi_prompt_summary_pipeline():
+    @task
+    def get_target_papers():
+        from modules.update.multi_summary_db import get_registered_styles, get_papers_missing_styles
+        from modules.update.multi_summary_generator import load_multi_summary_config
+
+        styles = get_registered_styles()
+        config = load_multi_summary_config()
+        fetch_limit = config.get("target_fetch_limit")
+        return get_papers_missing_styles(styles=styles, limit=fetch_limit)
+
+    @task
+    def generate_summaries(paper_list):
+        from modules.update.multi_summary_generator import generate_multi_prompt_summaries
+
+        return generate_multi_prompt_summaries(paper_list)
+
+    @task
+    def upsert_summaries(summary_items):
+        from modules.update.multi_summary_db import upsert_multi_prompt_summaries
+
+        upsert_multi_prompt_summaries(summary_items)
+
+    papers = get_target_papers()
+    summaries = generate_summaries(papers)
+    upsert_summaries(summaries)
+
+
+paper_multi_prompt_summary_pipeline_dag = paper_multi_prompt_summary_pipeline()

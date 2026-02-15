@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from airflow.decorators import dag, task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 default_args = {
     'owner': 'dongbin',
@@ -70,7 +71,16 @@ def paper_update_pipeline():
     images = gen_summary_image_to_minio(summaries)
 
     # 모든 가공이 완료된 후 최종 업데이트
-    upsert_paper_records(papers, summaries, tags, images, pdfs)
+    upsert_done = upsert_paper_records(papers, summaries, tags, images, pdfs)
+
+    trigger_multi_prompt_summary = TriggerDagRunOperator(
+        task_id='trigger_multi_prompt_summary',
+        trigger_dag_id='papers_multi_prompt_summary',
+        reset_dag_run=True,
+        wait_for_completion=False
+    )
+
+    upsert_done >> trigger_multi_prompt_summary
 
 
 # DAG 객체 생성

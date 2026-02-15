@@ -10,6 +10,8 @@ class SummaryStyle(str, Enum):
     plain = "plain"
     detailed = "detailed"
     dc = "dc"
+    basic_aggro = "basic_aggro"
+    instagram_card_news = "instagram_card_news"
 
 
 class Site(str, Enum):

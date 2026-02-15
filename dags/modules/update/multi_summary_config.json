@@ -1,0 +1,38 @@
+{
+  "model_name": "gemini-2.0-flash",
+  "target_fetch_limit": 150,
+  "generation_config": {
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "top_k": 40
+  },
+  "prompt_profiles": [
+    {
+      "style": "instagram_card_news",
+      "output_format": "delimited",
+      "system_prompt": [
+        "너는 학술 논문을 인스타그램 피드용 카드 뉴스 콘텐츠로 변환해주는 유능한 콘텐츠 에디터다.",
+        "주어진 논문 정보를 바탕으로 TITLE, HOOK, SUMMARY를 작성한다.",
+        "반드시 지정된 구분자 포맷만 출력하고, 불필요한 문장은 추가하지 않는다."
+      ],
+      "user_prompt_template": [
+        "논문 제목: {title}",
+        "논문 초록: {abstract}",
+        "",
+        "[작성 가이드라인]",
+        "TITLE: 클릭을 유도하는 자극적이고 흥미로운 제목 (어그로 필수, 이모지 사용).",
+        "HOOK: 논문의 핵심 결론을 한두 문장으로 요약 (가장 임팩트 있는 사실 위주).",
+        "소개: Abstract와 주요 내용을 결합하여 친근한 구어체로 설명하는 한 문단 (최대한 쉽게).",
+        "",
+        "[출력 형식]",
+        "반드시 아래 구분자를 사용해서 출력:",
+        "###TITLE###",
+        "(제목)",
+        "###HOOK###",
+        "(한두 문장 개요)",
+        "###SUMMARY###",
+        "(한 문단 상세 요약)"
+      ]
+    }
+  ]
+}
