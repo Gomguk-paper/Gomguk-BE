@@ -55,7 +55,7 @@ class User(SQLModel, table=True):
     provider: Optional[str] = Field(default=None, index=True)
     provider_sub: str = Field(default=None, nullable=False, index=True)
     email: Optional[str] = Field(default=None, nullable=True)
-    name: str = Field(unique=True, nullable=False)
+    name: str = Field(nullable=False)
     profile_image: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     meta: dict[str, Any] = Field(

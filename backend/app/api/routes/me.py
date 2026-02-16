@@ -17,6 +17,13 @@ router = APIRouter()
 
 
 # =========================
+# Request Schemas
+# =========================
+class NameUpdateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+# =========================
 # Response Schemas
 # =========================
 class MeCounts(BaseModel):
@@ -38,6 +45,10 @@ class MeResponse(BaseModel):
 class ProfileImageUpdateResponse(BaseModel):
     profile_image: str
     storage_path: str
+
+
+class NameUpdateResponse(BaseModel):
+    name: str
 
 
 # =========================
@@ -75,6 +86,36 @@ def me(
         meta=user.meta or {},
         counts=MeCounts(liked=liked_count, saved=saved_count, read=read_count),
     )
+
+
+@router.put(
+    "/name",
+    summary="이름 변경",
+    response_model=NameUpdateResponse,
+    responses={
+        400: {"description": "INVALID_NAME"},
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def update_name(
+    session: SessionDep,
+    user: CurrentUser,
+    body: NameUpdateBody,
+):
+    new_name = body.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="INVALID_NAME")
+
+    if new_name == user.name:
+        return NameUpdateResponse(name=user.name)
+
+    user.name = new_name
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return NameUpdateResponse(name=user.name)
 
 
 @router.put(

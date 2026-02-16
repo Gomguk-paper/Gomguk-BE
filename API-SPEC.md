@@ -186,6 +186,25 @@
   - `400 INVALID_FILE`
   - `401 AUTH_REQUIRED`
 
+### PUT `/me/name`
+
+이름 변경
+
+- Auth: 필요
+- Body (JSON)
+  - `name`: string (trim 이후 1~100)
+- Response: `200`
+
+```json
+{
+  "name": "new_name"
+}
+```
+
+- Errors
+  - `400 INVALID_NAME`
+  - `401 AUTH_REQUIRED`
+
 ### GET `/me/papers/liked`
 
 좋아요한 논문 목록
