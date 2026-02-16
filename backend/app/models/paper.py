@@ -49,6 +49,7 @@ class Paper(SQLModel, table=True):
             nullable=False
         )
     )
+    citation_count: int = Field(default=0, nullable=False)
 
     summaries: list["PaperSummary"] = Relationship(back_populates="paper")
     paper_tags: list["PaperTag"] = Relationship(back_populates="paper")

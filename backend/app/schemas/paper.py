@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 class PaperOut(BaseModel):
     id: int
-    title: str
-    short: str
+    hook: str
+    points: list[str]
+    detailed: str
     authors: list[str]
     year: int
     image_url: str
@@ -18,6 +19,7 @@ class PaperOut(BaseModel):
     is_scrapped: bool = False
     like_count: int = 0
     scrap_count: int = 0
+    citation_count: int = 0
     recommend_score: Optional[float] = None
     trending_score: Optional[float] = None
     freshness_score: Optional[float] = None
