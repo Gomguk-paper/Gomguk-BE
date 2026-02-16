@@ -217,6 +217,49 @@ def get_paper_outs_by_ids(
 
 
 # =========================
+# Global trending
+# =========================
+def get_top_global_trending_papers(
+    session: SessionDep,
+    *,
+    limit: int,
+    offset: int = 0,
+) -> list[tuple[int, float]]:
+    """
+    전역 트렌딩 점수(popularity) 기준 상위 paper 목록 반환.
+    returns: [(paper_id, trending_score), ...]
+    """
+    sql = sa_text("""
+    WITH paper_popularity AS (
+        SELECT
+            p.id AS paper_id,
+            LEAST(
+                LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101),
+                1.0
+            ) AS trending_score
+        FROM papers p
+        LEFT JOIN (
+            SELECT l.paper_id, COUNT(*) AS cnt
+            FROM user_paper_likes l
+            GROUP BY l.paper_id
+        ) lc ON lc.paper_id = p.id
+        LEFT JOIN (
+            SELECT s.paper_id, COUNT(*) AS cnt
+            FROM user_paper_scraps s
+            GROUP BY s.paper_id
+        ) sc ON sc.paper_id = p.id
+    )
+    SELECT paper_id, trending_score
+    FROM paper_popularity
+    ORDER BY trending_score DESC, paper_id DESC
+    OFFSET :off LIMIT :lim
+    """)
+
+    rows = session.execute(sql, {"off": offset, "lim": limit}).all()
+    return [(int(row[0]), float(row[1])) for row in rows]
+
+
+# =========================
 # Recommendation scoring
 # =========================
 def _recommend_paper_ids(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Query
@@ -8,7 +9,8 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from app.api.deps import SessionDep
-from app.models.paper import Tag  # 프로젝트 경로에 맞게 조정
+from app.crud.paper import get_top_global_trending_papers
+from app.models.paper import PaperTag, Tag
 
 router = APIRouter()
 
@@ -32,6 +34,10 @@ class PagedTagsResponse(BaseModel):
     count: int
 
 
+class TrendingTagIdsResponse(BaseModel):
+    tag_ids: list[int]
+
+
 # =========================
 # Helpers
 # =========================
@@ -44,12 +50,40 @@ def _to_tag_out(t: Tag) -> TagOut:
     )
 
 
+def _get_trending_tag_ids(
+    session: SessionDep,
+    *,
+    candidate_paper_limit: int = 100,
+    tag_limit: int = 20,
+) -> list[int]:
+    top_papers = get_top_global_trending_papers(
+        session,
+        limit=candidate_paper_limit,
+    )
+    if not top_papers:
+        return []
+
+    trending_by_paper_id = {paper_id: score for paper_id, score in top_papers}
+    paper_ids = list(trending_by_paper_id.keys())
+
+    rows = session.exec(
+        select(PaperTag.paper_id, PaperTag.tag_id).where(PaperTag.paper_id.in_(paper_ids))
+    ).all()
+
+    tag_scores: dict[int, float] = defaultdict(float)
+    for paper_id, tag_id in rows:
+        tag_scores[tag_id] += trending_by_paper_id.get(paper_id, 0.0)
+
+    ranked = sorted(tag_scores.items(), key=lambda item: item[1], reverse=True)
+    return [tag_id for tag_id, _ in ranked[:tag_limit]]
+
+
 # =========================
 # Routes
 # =========================
 @router.get(
     "/",
-    summary="태그 목록 조회",
+    summary="List tags",
     response_model=PagedTagsResponse,
     responses={
         500: {"description": "Internal Server Error"},
@@ -60,12 +94,11 @@ def list_tags(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    # count = 전체 태그 개수(페이징 적용 전)
     total = session.exec(select(func.count()).select_from(Tag)).one()
 
     stmt = (
         select(Tag)
-        .order_by(Tag.count.desc(), Tag.name.asc())  # 인기순 + 이름순
+        .order_by(Tag.count.desc(), Tag.name.asc())
         .offset(offset)
         .limit(limit)
     )
@@ -74,4 +107,26 @@ def list_tags(
     return PagedTagsResponse(
         items=[TagItem(tag=_to_tag_out(t)) for t in tags],
         count=total,
+    )
+
+
+@router.get(
+    "/trending",
+    summary="Top trending tag ids",
+    response_model=TrendingTagIdsResponse,
+    responses={
+        500: {"description": "Internal Server Error"},
+    },
+)
+def get_trending_tag_ids(
+    session: SessionDep,
+    candidate_paper_limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(20, ge=1, le=100),
+):
+    return TrendingTagIdsResponse(
+        tag_ids=_get_trending_tag_ids(
+            session,
+            candidate_paper_limit=candidate_paper_limit,
+            tag_limit=limit,
+        )
     )
