@@ -62,7 +62,7 @@ def get_summary(
     session: SessionDep,
     user: CurrentUser,
     paper_id: int,
-    style: str = Query("plain"),
+    style: str = Query("basic_aggro"),
 ):
     paper = session.get(Paper, paper_id)
     if paper is None:
