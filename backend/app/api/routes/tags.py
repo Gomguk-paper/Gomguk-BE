@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import select
@@ -48,6 +48,13 @@ def _to_tag_out(t: Tag) -> TagOut:
         description=t.description,
         count=t.count,
     )
+
+
+def _get_tag_or_404(session: SessionDep, tag_id: int) -> Tag:
+    tag = session.get(Tag, tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return tag
 
 
 def _get_trending_tag_ids(
@@ -130,3 +137,19 @@ def get_trending_tag_ids(
             tag_limit=limit,
         )
     )
+
+
+@router.get(
+    "/{tag_id}",
+    summary="Get tag detail (검수용)",
+    response_model=TagOut,
+    responses={
+        404: {"description": "TAG_NOT_FOUND"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def get_tag_detail(
+    session: SessionDep,
+    tag_id: int,
+):
+    return _to_tag_out(_get_tag_or_404(session, tag_id))
