@@ -276,7 +276,7 @@ def _recommend_paper_ids(
 ) -> tuple[list[int], int, dict[int, tuple[float, float, float]]]:
     """
     추천 점수 기반 논문 ID 반환.
-    score = 0.45 * tag_similarity + 0.25 * popularity + 0.25 * freshness - 0.15 * view_penalty
+    score = 0.40 * tag_similarity + 0.25 * citation_norm + 0.25 * freshness - 0.10 * view_penalty
 
     Returns:
         (paper_ids, total, scores_map)
@@ -314,38 +314,30 @@ def _recommend_paper_ids(
         GROUP BY pt.tag_id
     ),
     profile_norm AS (
-        SELECT GREATEST(COALESCE(MAX(preference), 0), 1.0) AS max_pref FROM user_tag_profile
+        SELECT GREATEST(COALESCE(SUM(preference), 0), 1.0) AS total_pref FROM user_tag_profile
     ),
     candidates AS (
-        SELECT p.id AS paper_id, p.published_at
+        SELECT p.id AS paper_id, p.published_at, p.citation_count
         FROM papers p
         WHERE {where_clause}
     ),
     paper_tag_score AS (
         SELECT c.paper_id,
-               LEAST(COALESCE(SUM(utp.preference), 0) / pn.max_pref, 1.0) AS tag_sim
+               LEAST(COALESCE(SUM(utp.preference), 0) / pn.total_pref, 1.0) AS tag_sim
         FROM candidates c
         LEFT JOIN paper_tags pt ON pt.paper_id = c.paper_id
         LEFT JOIN user_tag_profile utp ON utp.tag_id = pt.tag_id
         CROSS JOIN profile_norm pn
-        GROUP BY c.paper_id, pn.max_pref
+        GROUP BY c.paper_id, pn.total_pref
     ),
-    paper_popularity AS (
+    paper_citation AS (
         SELECT c.paper_id,
-               LEAST(LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101), 1.0) AS popularity
+               LEAST(
+                   LN(COALESCE(c.citation_count, 0) + 1)
+                   / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8),
+                   1.0
+               ) AS citation_norm
         FROM candidates c
-        LEFT JOIN (
-            SELECT l.paper_id, COUNT(*) AS cnt
-            FROM user_paper_likes l
-            INNER JOIN candidates c2 ON c2.paper_id = l.paper_id
-            GROUP BY l.paper_id
-        ) lc ON lc.paper_id = c.paper_id
-        LEFT JOIN (
-            SELECT s.paper_id, COUNT(*) AS cnt
-            FROM user_paper_scraps s
-            INNER JOIN candidates c3 ON c3.paper_id = s.paper_id
-            GROUP BY s.paper_id
-        ) sc ON sc.paper_id = c.paper_id
     ),
     paper_freshness AS (
         SELECT c.paper_id,
@@ -367,14 +359,14 @@ def _recommend_paper_ids(
     scored AS (
         SELECT
             ts.paper_id,
-            0.45 * COALESCE(ts.tag_sim, 0)
-            + 0.25 * COALESCE(pp.popularity, 0)
+            0.40 * COALESCE(ts.tag_sim, 0)
+            + 0.25 * COALESCE(pc.citation_norm, 0)
             + 0.25 * COALESCE(pf.freshness, 0)
-            - 0.15 * COALESCE(vp.view_pen, 0) AS score,
-            COALESCE(pp.popularity, 0) AS trending,
+            - 0.10 * COALESCE(vp.view_pen, 0) AS score,
+            COALESCE(pc.citation_norm, 0) AS trending,
             COALESCE(pf.freshness, 0) AS freshness
         FROM paper_tag_score ts
-        JOIN paper_popularity pp ON pp.paper_id = ts.paper_id
+        JOIN paper_citation pc ON pc.paper_id = ts.paper_id
         JOIN paper_freshness pf ON pf.paper_id = ts.paper_id
         JOIN paper_view_penalty vp ON vp.paper_id = ts.paper_id
     )
