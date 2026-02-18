@@ -303,7 +303,8 @@ def _recommend_paper_ids(
     where_clause = " AND ".join(filters) if filters else "TRUE"
 
     sql = sa_text(f"""
-    WITH user_tag_profile AS (
+    WITH user_tag_profile_raw AS (
+        -- 인터랙션 기반 (좋아요/스크랩)
         SELECT pt.tag_id, SUM(w) AS preference
         FROM (
             SELECT paper_id, 1.0 AS w FROM user_paper_likes WHERE user_id = :user_id
@@ -312,6 +313,18 @@ def _recommend_paper_ids(
         ) interactions
         JOIN paper_tags pt ON pt.paper_id = interactions.paper_id
         GROUP BY pt.tag_id
+
+        UNION ALL
+
+        -- 온보딩 태그 (user.meta['tag_prefs'])
+        SELECT (key::int) AS tag_id, (value::numeric) AS preference
+        FROM users u, jsonb_each_text(COALESCE(u.meta->'tag_prefs', '{}'::jsonb))
+        WHERE u.id = :user_id
+    ),
+    user_tag_profile AS (
+        SELECT tag_id, SUM(preference) AS preference
+        FROM user_tag_profile_raw
+        GROUP BY tag_id
     ),
     profile_norm AS (
         SELECT GREATEST(COALESCE(SUM(preference), 0), 1.0) AS total_pref FROM user_tag_profile
