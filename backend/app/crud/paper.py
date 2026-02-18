@@ -318,7 +318,7 @@ def _recommend_paper_ids(
 
         -- 온보딩 태그 (user.meta['tag_prefs'])
         SELECT (key::int) AS tag_id, (value::numeric) AS preference
-        FROM users u, jsonb_each_text(COALESCE(u.meta->'tag_prefs', '{}'::jsonb))
+        FROM users u, jsonb_each_text(COALESCE(u.meta->'tag_prefs', '{{}}'::jsonb))
         WHERE u.id = :user_id
     ),
     user_tag_profile AS (
