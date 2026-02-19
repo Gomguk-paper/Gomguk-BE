@@ -385,7 +385,7 @@ def _recommend_paper_ids(
     paper_citation_raw AS (
         SELECT c.paper_id,
                LN(COALESCE(c.citation_count, 0) + 1)
-               / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8)
+               / POWER(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 1, 0.7)
                AS raw_cite
         FROM candidates c
     ),
@@ -396,7 +396,7 @@ def _recommend_paper_ids(
     ),
     paper_freshness AS (
         SELECT c.paper_id,
-               1.0 / POWER(1 + EXTRACT(EPOCH FROM (NOW() - c.published_at)) / 86400.0, 0.5) AS freshness
+               1.0 / (1.0 + EXP(0.02 * (EXTRACT(EPOCH FROM (NOW() - c.published_at)) / 86400.0 - 180))) AS freshness
         FROM candidates c
     ),
     paper_view_penalty AS (
@@ -411,12 +411,20 @@ def _recommend_paper_ids(
         LEFT JOIN user_paper_views v
             ON v.paper_id = c.paper_id AND v.user_id = :user_id
     ),
+    paper_landmark AS (
+        SELECT c.paper_id,
+               CASE WHEN c.citation_count >= 50000 THEN 0.15
+                    WHEN c.citation_count >= 10000 THEN 0.08
+                    ELSE 0.0 END AS landmark
+        FROM candidates c
+    ),
     scored AS (
         SELECT
             ts.paper_id,
-            0.40 * COALESCE(ts.tag_sim, 0)
-            + 0.25 * COALESCE(pc.citation_norm, 0)
-            + 0.25 * COALESCE(pf.freshness, 0)
+            0.35 * COALESCE(ts.tag_sim, 0)
+            + 0.20 * COALESCE(pc.citation_norm, 0)
+            + 0.35 * COALESCE(pf.freshness, 0)
+            + COALESCE(pl.landmark, 0)
             - 0.10 * COALESCE(vp.view_pen, 0) AS score,
             COALESCE(pc.citation_norm, 0) AS trending,
             COALESCE(pf.freshness, 0) AS freshness
@@ -424,6 +432,7 @@ def _recommend_paper_ids(
         JOIN paper_citation pc ON pc.paper_id = ts.paper_id
         JOIN paper_freshness pf ON pf.paper_id = ts.paper_id
         JOIN paper_view_penalty vp ON vp.paper_id = ts.paper_id
+        JOIN paper_landmark pl ON pl.paper_id = ts.paper_id
     )
     SELECT paper_id, score, COUNT(*) OVER() AS total, trending, freshness
     FROM scored
