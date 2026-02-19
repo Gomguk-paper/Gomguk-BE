@@ -343,14 +343,17 @@ def _recommend_paper_ids(
         CROSS JOIN profile_norm pn
         GROUP BY c.paper_id, pn.total_pref
     ),
-    paper_citation AS (
+    paper_citation_raw AS (
         SELECT c.paper_id,
-               LEAST(
-                   LN(COALESCE(c.citation_count, 0) + 1)
-                   / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8),
-                   1.0
-               ) AS citation_norm
+               LN(COALESCE(c.citation_count, 0) + 1)
+               / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8)
+               AS raw_cite
         FROM candidates c
+    ),
+    paper_citation AS (
+        SELECT paper_id,
+               raw_cite / GREATEST(MAX(raw_cite) OVER(), 1e-9) AS citation_norm
+        FROM paper_citation_raw
     ),
     paper_freshness AS (
         SELECT c.paper_id,
