@@ -8,7 +8,7 @@ from sqlmodel import select
 
 from app.api.deps import SessionDep
 from app.core.enums import Site
-from app.models.paper import Paper, PaperTag
+from app.models.paper import Paper, PaperSummary, PaperTag
 from app.models.user import UserPaperLike, UserPaperScrap
 from app.schemas.paper import PaperOut
 
@@ -100,10 +100,18 @@ def get_paper_out_by_id(
     like_count = get_like_count_by_paper_id(session, paper_id)
     scrap_count = get_scrap_count_by_paper_id(session, paper_id)
 
+    summary = session.exec(
+        select(PaperSummary).where(
+            PaperSummary.paper_id == paper_id,
+            PaperSummary.style == "plain",
+        )
+    ).first()
+
     return PaperOut(
         id=paper.id,
-        title=paper.title,
-        short=paper.short,
+        hook=summary.hook if summary else "",
+        points=summary.points if summary else [],
+        detailed=summary.detailed if summary else "",
         authors=paper.authors,
         year=paper.published_at.year,
         image_url=_papers_s3_to_http(paper.image_url),
@@ -186,18 +194,29 @@ def get_paper_outs_by_ids(
     ).all()
     scrap_count_map = {pid: cnt for pid, cnt in scrap_rows}
 
+    # summaries (style='plain')
+    summaries = session.exec(
+        select(PaperSummary).where(
+            PaperSummary.paper_id.in_(paper_ids),
+            PaperSummary.style == "plain",
+        )
+    ).all()
+    summary_map = {s.paper_id: s for s in summaries}
+
     outs: list[PaperOut] = []
     for pid in paper_ids:
         p = paper_map.get(pid)
         if p is None:
             continue
 
+        summary = summary_map.get(pid)
         scores = scores_map.get(pid) if scores_map else None
         outs.append(
             PaperOut(
                 id=p.id,
-                title=p.title,
-                short=p.short,
+                hook=summary.hook if summary else "",
+                points=summary.points if summary else [],
+                detailed=summary.detailed if summary else "",
                 authors=p.authors,
                 year=p.published_at.year,
                 image_url=_papers_s3_to_http(p.image_url),

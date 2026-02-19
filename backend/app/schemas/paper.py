@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 class PaperOut(BaseModel):
     id: int
-    title: str
-    short: str
+    hook: str
+    points: list[str]
+    detailed: str
     authors: list[str]
     year: int
     image_url: str
