@@ -106,6 +106,13 @@ def get_paper_out_by_id(
             PaperSummary.style == "plain",
         )
     ).first()
+    if summary is None:
+        summary = session.exec(
+            select(PaperSummary).where(
+                PaperSummary.paper_id == paper_id,
+                PaperSummary.style == "instagram_card_news",
+            )
+        ).first()
 
     return PaperOut(
         id=paper.id,
@@ -194,7 +201,7 @@ def get_paper_outs_by_ids(
     ).all()
     scrap_count_map = {pid: cnt for pid, cnt in scrap_rows}
 
-    # summaries (style='plain')
+    # summaries (style='plain', fallback to 'instagram_card_news')
     summaries = session.exec(
         select(PaperSummary).where(
             PaperSummary.paper_id.in_(paper_ids),
@@ -202,6 +209,17 @@ def get_paper_outs_by_ids(
         )
     ).all()
     summary_map = {s.paper_id: s for s in summaries}
+
+    missing_ids = [pid for pid in paper_ids if pid not in summary_map]
+    if missing_ids:
+        fallback_summaries = session.exec(
+            select(PaperSummary).where(
+                PaperSummary.paper_id.in_(missing_ids),
+                PaperSummary.style == "instagram_card_news",
+            )
+        ).all()
+        for s in fallback_summaries:
+            summary_map.setdefault(s.paper_id, s)
 
     outs: list[PaperOut] = []
     for pid in paper_ids:
