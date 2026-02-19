@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select as sa_select
 from sqlmodel import select
@@ -10,6 +10,7 @@ from sqlmodel import select
 from app.api.deps import SessionDep, CurrentUser
 from app.core.storage import profile_image_to_public_url, upload_user_profile_png
 from app.crud.paper import get_paper_outs_by_ids
+from app.models.paper import Tag
 from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperItem, PagedPapersResponse
 
@@ -19,6 +20,10 @@ router = APIRouter()
 # =========================
 # Request Schemas
 # =========================
+class OnboardingTagsBody(BaseModel):
+    tag_preferences: dict[str, float]  # {"NLP": 2.0, "딥러닝": 1.5, ...}
+
+
 class NameUpdateBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
@@ -256,3 +261,34 @@ def get_read_papers(
         items=[PaperItem(paper=o) for o in outs],
         count=total,
     )
+
+
+@router.put(
+    "/onboarding-tags",
+    summary="온보딩 태그 선호도 저장",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def set_onboarding_tags(
+    session: SessionDep,
+    user: CurrentUser,
+    body: OnboardingTagsBody,
+):
+    tag_names = list(body.tag_preferences.keys())
+    tags = session.exec(
+        select(Tag).where(Tag.name.in_(tag_names))
+    ).all()
+    name_to_id = {t.name: t.id for t in tags}
+
+    tag_prefs = {}
+    for name, weight in body.tag_preferences.items():
+        tag_id = name_to_id.get(name)
+        if tag_id is not None:
+            tag_prefs[str(tag_id)] = weight
+
+    meta = dict(user.meta or {})
+    meta["tag_prefs"] = tag_prefs
+    user.meta = meta
+    session.add(user)
+    session.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

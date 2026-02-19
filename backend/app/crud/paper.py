@@ -8,7 +8,7 @@ from sqlmodel import select
 
 from app.api.deps import SessionDep
 from app.core.enums import Site
-from app.models.paper import Paper, PaperTag
+from app.models.paper import Paper, PaperSummary, PaperTag
 from app.models.user import UserPaperLike, UserPaperScrap
 from app.schemas.paper import PaperOut
 
@@ -100,10 +100,18 @@ def get_paper_out_by_id(
     like_count = get_like_count_by_paper_id(session, paper_id)
     scrap_count = get_scrap_count_by_paper_id(session, paper_id)
 
+    summary = session.exec(
+        select(PaperSummary).where(
+            PaperSummary.paper_id == paper_id,
+            PaperSummary.style == "plain",
+        )
+    ).first()
+
     return PaperOut(
         id=paper.id,
-        title=paper.title,
-        short=paper.short,
+        hook=summary.hook if summary else "",
+        points=summary.points if summary else [],
+        detailed=summary.detailed if summary else "",
         authors=paper.authors,
         year=paper.published_at.year,
         image_url=_papers_s3_to_http(paper.image_url),
@@ -186,18 +194,29 @@ def get_paper_outs_by_ids(
     ).all()
     scrap_count_map = {pid: cnt for pid, cnt in scrap_rows}
 
+    # summaries (style='plain')
+    summaries = session.exec(
+        select(PaperSummary).where(
+            PaperSummary.paper_id.in_(paper_ids),
+            PaperSummary.style == "plain",
+        )
+    ).all()
+    summary_map = {s.paper_id: s for s in summaries}
+
     outs: list[PaperOut] = []
     for pid in paper_ids:
         p = paper_map.get(pid)
         if p is None:
             continue
 
+        summary = summary_map.get(pid)
         scores = scores_map.get(pid) if scores_map else None
         outs.append(
             PaperOut(
                 id=p.id,
-                title=p.title,
-                short=p.short,
+                hook=summary.hook if summary else "",
+                points=summary.points if summary else [],
+                detailed=summary.detailed if summary else "",
                 authors=p.authors,
                 year=p.published_at.year,
                 image_url=_papers_s3_to_http(p.image_url),
@@ -303,7 +322,8 @@ def _recommend_paper_ids(
     where_clause = " AND ".join(filters) if filters else "TRUE"
 
     sql = sa_text(f"""
-    WITH user_tag_profile AS (
+    WITH user_tag_profile_raw AS (
+        -- 인터랙션 기반 (좋아요/스크랩)
         SELECT pt.tag_id, SUM(w) AS preference
         FROM (
             SELECT paper_id, 1.0 AS w FROM user_paper_likes WHERE user_id = :user_id
@@ -312,6 +332,18 @@ def _recommend_paper_ids(
         ) interactions
         JOIN paper_tags pt ON pt.paper_id = interactions.paper_id
         GROUP BY pt.tag_id
+
+        UNION ALL
+
+        -- 온보딩 태그 (user.meta['tag_prefs'])
+        SELECT (key::int) AS tag_id, (value::numeric) AS preference
+        FROM users u, jsonb_each_text(COALESCE(u.meta->'tag_prefs', '{{}}'::jsonb))
+        WHERE u.id = :user_id
+    ),
+    user_tag_profile AS (
+        SELECT tag_id, SUM(preference) AS preference
+        FROM user_tag_profile_raw
+        GROUP BY tag_id
     ),
     profile_norm AS (
         SELECT GREATEST(COALESCE(SUM(preference), 0), 1.0) AS total_pref FROM user_tag_profile
@@ -330,14 +362,17 @@ def _recommend_paper_ids(
         CROSS JOIN profile_norm pn
         GROUP BY c.paper_id, pn.total_pref
     ),
-    paper_citation AS (
+    paper_citation_raw AS (
         SELECT c.paper_id,
-               LEAST(
-                   LN(COALESCE(c.citation_count, 0) + 1)
-                   / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8),
-                   1.0
-               ) AS citation_norm
+               LN(COALESCE(c.citation_count, 0) + 1)
+               / SQRT(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 8)
+               AS raw_cite
         FROM candidates c
+    ),
+    paper_citation AS (
+        SELECT paper_id,
+               raw_cite / GREATEST(MAX(raw_cite) OVER(), 1e-9) AS citation_norm
+        FROM paper_citation_raw
     ),
     paper_freshness AS (
         SELECT c.paper_id,
