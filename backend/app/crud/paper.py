@@ -123,6 +123,7 @@ def get_paper_out_by_id(
 
     return PaperOut(
         id=paper.id,
+        title=paper.title,
         hook=summary.hook if summary else "",
         points=summary.points if summary else [],
         detailed=summary.detailed if summary else "",
@@ -234,6 +235,7 @@ def get_paper_outs_by_ids(
         outs.append(
             PaperOut(
                 id=p.id,
+                title=p.title,
                 hook=summary.hook if summary else "",
                 points=summary.points if summary else [],
                 detailed=summary.detailed if summary else "",
