@@ -267,31 +267,51 @@ def get_top_global_trending_papers(
     offset: int = 0,
 ) -> list[tuple[int, float]]:
     """
-    전역 트렌딩 점수(popularity) 기준 상위 paper 목록 반환.
+    전역 트렌딩 점수 기준 상위 paper 목록 반환.
+    score = 0.20 * citation_norm + 0.35 * freshness + landmark
     returns: [(paper_id, trending_score), ...]
     """
     sql = sa_text("""
-    WITH paper_popularity AS (
-        SELECT
-            p.id AS paper_id,
-            LEAST(
-                LN(1 + COALESCE(lc.cnt, 0) + 2 * COALESCE(sc.cnt, 0)) / LN(101),
-                1.0
-            ) AS trending_score
-        FROM papers p
-        LEFT JOIN (
-            SELECT l.paper_id, COUNT(*) AS cnt
-            FROM user_paper_likes l
-            GROUP BY l.paper_id
-        ) lc ON lc.paper_id = p.id
-        LEFT JOIN (
-            SELECT s.paper_id, COUNT(*) AS cnt
-            FROM user_paper_scraps s
-            GROUP BY s.paper_id
-        ) sc ON sc.paper_id = p.id
+    WITH candidates AS (
+        SELECT id AS paper_id, published_at, citation_count
+        FROM papers
+    ),
+    paper_citation_raw AS (
+        SELECT paper_id,
+               LN(COALESCE(citation_count, 0) + 1)
+               / POWER(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM published_at)) + 1, 0.7)
+               AS raw_cite
+        FROM candidates
+    ),
+    paper_citation AS (
+        SELECT paper_id,
+               raw_cite / GREATEST(MAX(raw_cite) OVER(), 1e-9) AS citation_norm
+        FROM paper_citation_raw
+    ),
+    paper_freshness AS (
+        SELECT paper_id,
+               1.0 / (1.0 + EXP(0.02 * (EXTRACT(EPOCH FROM (NOW() - published_at)) / 86400.0 - 180))) AS freshness
+        FROM candidates
+    ),
+    paper_landmark AS (
+        SELECT paper_id,
+               CASE WHEN citation_count >= 50000 THEN 0.15
+                    WHEN citation_count >= 10000 THEN 0.08
+                    ELSE 0.0 END AS landmark
+        FROM candidates
+    ),
+    scored AS (
+        SELECT c.paper_id,
+               0.20 * COALESCE(pc.citation_norm, 0)
+               + 0.35 * COALESCE(pf.freshness, 0)
+               + COALESCE(pl.landmark, 0) AS trending_score
+        FROM candidates c
+        JOIN paper_citation pc ON pc.paper_id = c.paper_id
+        JOIN paper_freshness pf ON pf.paper_id = c.paper_id
+        JOIN paper_landmark pl ON pl.paper_id = c.paper_id
     )
     SELECT paper_id, trending_score
-    FROM paper_popularity
+    FROM scored
     ORDER BY trending_score DESC, paper_id DESC
     OFFSET :off LIMIT :lim
     """)
