@@ -5,13 +5,15 @@ from typing import Any, Optional
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select as sa_select
-from sqlmodel import select
+from sqlmodel import delete, select
 
 from app.api.deps import SessionDep, CurrentUser
+from app.core.config import settings
 from app.core.storage import profile_image_to_public_url, upload_user_profile_png
 from app.crud.paper import get_paper_outs_by_ids
+from app.models.event import Event
 from app.models.paper import Tag
-from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
+from app.models.user import User, UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperItem, PagedPapersResponse
 
 router = APIRouter()
@@ -57,6 +59,39 @@ class NameUpdateResponse(BaseModel):
 
 
 # =========================
+# Cookie Helpers
+# =========================
+ACCESS_COOKIE_KEY = "access_token"
+REFRESH_COOKIE_KEY = "refresh_token"
+COOKIE_PATH = "/api"
+COOKIE_SAMESITE = "lax"
+
+
+def _secure_cookie() -> bool:
+    backend_public_url = getattr(settings, "BACKEND_PUBLIC_URL", "").rstrip("/")
+    return backend_public_url.startswith("https://")
+
+
+def _delete_auth_cookies(response: Response) -> None:
+    secure_cookie = _secure_cookie()
+    for path in (COOKIE_PATH, "/"):
+        response.delete_cookie(
+            key=ACCESS_COOKIE_KEY,
+            path=path,
+            secure=secure_cookie,
+            httponly=True,
+            samesite=COOKIE_SAMESITE,
+        )
+        response.delete_cookie(
+            key=REFRESH_COOKIE_KEY,
+            path=path,
+            secure=secure_cookie,
+            httponly=True,
+            samesite=COOKIE_SAMESITE,
+        )
+
+
+# =========================
 # Routes
 # =========================
 @router.get(
@@ -91,6 +126,32 @@ def me(
         meta=user.meta or {},
         counts=MeCounts(liked=liked_count, saved=saved_count, read=read_count),
     )
+
+
+@router.delete(
+    "/",
+    summary="내 계정 삭제",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def delete_me(
+    session: SessionDep,
+    user: CurrentUser,
+) -> Response:
+    # FK 제약으로 인해 연관 레코드를 먼저 정리한다.
+    session.exec(delete(Event).where(Event.user_id == user.id))
+    session.exec(delete(UserPaperLike).where(UserPaperLike.user_id == user.id))
+    session.exec(delete(UserPaperScrap).where(UserPaperScrap.user_id == user.id))
+    session.exec(delete(UserPaperView).where(UserPaperView.user_id == user.id))
+    session.exec(delete(User).where(User.id == user.id))
+    session.commit()
+
+    resp = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _delete_auth_cookies(resp)
+    return resp
 
 
 @router.put(
