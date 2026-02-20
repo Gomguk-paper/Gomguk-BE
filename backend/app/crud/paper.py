@@ -478,6 +478,124 @@ def _recommend_paper_ids(
     return paper_ids, total, scores_map
 
 
+def _compute_scores_for_ids(
+    session: SessionDep,
+    *,
+    user_id: int,
+    paper_ids: list[int],
+) -> dict[int, tuple[float, float, float]]:
+    """
+    지정된 paper_ids에 대해 (recommend_score, trending_score, freshness_score) 계산.
+    /paper/ 목록 조회에서 점수를 포함시키기 위해 사용.
+    """
+    if not paper_ids:
+        return {}
+
+    ids_sql = ", ".join(str(int(pid)) for pid in paper_ids)
+    params: dict[str, Any] = {"user_id": user_id}
+
+    sql = sa_text(f"""
+    WITH user_tag_profile_raw AS (
+        SELECT pt.tag_id, SUM(w) AS preference
+        FROM (
+            SELECT paper_id, 1.0 AS w FROM user_paper_likes WHERE user_id = :user_id
+            UNION ALL
+            SELECT paper_id, 1.5 AS w FROM user_paper_scraps WHERE user_id = :user_id
+        ) interactions
+        JOIN paper_tags pt ON pt.paper_id = interactions.paper_id
+        GROUP BY pt.tag_id
+
+        UNION ALL
+
+        SELECT (key::int) AS tag_id, (value::numeric) AS preference
+        FROM users u, jsonb_each_text(COALESCE(u.meta->'tag_prefs', '{{}}'::jsonb))
+        WHERE u.id = :user_id
+    ),
+    user_tag_profile AS (
+        SELECT tag_id, SUM(preference) AS preference
+        FROM user_tag_profile_raw
+        GROUP BY tag_id
+    ),
+    profile_norm AS (
+        SELECT GREATEST(COALESCE(SUM(preference), 0), 1.0) AS total_pref FROM user_tag_profile
+    ),
+    candidates AS (
+        SELECT p.id AS paper_id, p.published_at, p.citation_count
+        FROM papers p
+        WHERE p.id IN ({ids_sql})
+    ),
+    paper_tag_score AS (
+        SELECT c.paper_id,
+               LEAST(COALESCE(SUM(utp.preference), 0) / pn.total_pref, 1.0) AS tag_sim
+        FROM candidates c
+        LEFT JOIN paper_tags pt ON pt.paper_id = c.paper_id
+        LEFT JOIN user_tag_profile utp ON utp.tag_id = pt.tag_id
+        CROSS JOIN profile_norm pn
+        GROUP BY c.paper_id, pn.total_pref
+    ),
+    paper_citation_raw AS (
+        SELECT c.paper_id,
+               LN(COALESCE(c.citation_count, 0) + 1)
+               / POWER(GREATEST(1, EXTRACT(YEAR FROM NOW()) - EXTRACT(YEAR FROM c.published_at)) + 1, 0.7)
+               AS raw_cite
+        FROM candidates c
+    ),
+    paper_citation AS (
+        SELECT paper_id,
+               raw_cite / GREATEST(MAX(raw_cite) OVER(), 1e-9) AS citation_norm
+        FROM paper_citation_raw
+    ),
+    paper_freshness AS (
+        SELECT c.paper_id,
+               1.0 / (1.0 + EXP(0.02 * (EXTRACT(EPOCH FROM (NOW() - c.published_at)) / 86400.0 - 180))) AS freshness
+        FROM candidates c
+    ),
+    paper_view_penalty AS (
+        SELECT c.paper_id,
+               CASE
+                   WHEN v.last_viewed_at IS NULL THEN 0
+                   WHEN v.last_viewed_at > NOW() - INTERVAL '24 hours' THEN 1.0
+                   WHEN v.last_viewed_at > NOW() - INTERVAL '7 days' THEN 0.5
+                   ELSE 0.2
+               END AS view_pen
+        FROM candidates c
+        LEFT JOIN user_paper_views v
+            ON v.paper_id = c.paper_id AND v.user_id = :user_id
+    ),
+    paper_landmark AS (
+        SELECT c.paper_id,
+               CASE WHEN c.citation_count >= 50000 THEN 0.15
+                    WHEN c.citation_count >= 10000 THEN 0.08
+                    ELSE 0.0 END AS landmark
+        FROM candidates c
+    ),
+    scored AS (
+        SELECT
+            ts.paper_id,
+            0.35 * COALESCE(ts.tag_sim, 0)
+            + 0.20 * COALESCE(pc.citation_norm, 0)
+            + 0.35 * COALESCE(pf.freshness, 0)
+            + COALESCE(pl.landmark, 0)
+            - 0.10 * COALESCE(vp.view_pen, 0) AS score,
+            COALESCE(pc.citation_norm, 0) AS trending,
+            COALESCE(pf.freshness, 0) AS freshness
+        FROM paper_tag_score ts
+        JOIN paper_citation pc ON pc.paper_id = ts.paper_id
+        JOIN paper_freshness pf ON pf.paper_id = ts.paper_id
+        JOIN paper_view_penalty vp ON vp.paper_id = ts.paper_id
+        JOIN paper_landmark pl ON pl.paper_id = ts.paper_id
+    )
+    SELECT paper_id, score, trending, freshness
+    FROM scored
+    """)
+
+    rows = session.execute(sql, params).all()
+    return {
+        int(row[0]): (float(row[1]), float(row[2]), float(row[3]))
+        for row in rows
+    }
+
+
 # =========================
 # Sorting (only for /papers/)
 # =========================
@@ -554,7 +672,8 @@ def list_paper_outs_page(
     subq = base.subquery()
     total = session.exec(sa_select(func.count()).select_from(subq)).scalar_one()
 
-    return get_paper_outs_by_ids(session, user_id=user_id, paper_ids=paper_ids), total
+    scores_map = _compute_scores_for_ids(session, user_id=user_id, paper_ids=paper_ids)
+    return get_paper_outs_by_ids(session, user_id=user_id, paper_ids=paper_ids, scores_map=scores_map), total
 
 
 def feed_paper_outs_page(
