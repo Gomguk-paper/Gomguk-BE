@@ -98,16 +98,28 @@ def _get_trending_tag_ids(
 )
 def list_tags(
     session: SessionDep,
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1),
     offset: int = Query(0, ge=0),
+    min_count: int = Query(0, ge=0),
+    top_k: Optional[int] = Query(None, ge=1),
+    include_zero: bool = Query(False),
 ):
     total = session.exec(select(func.count()).select_from(Tag)).one()
 
+    stmt = select(Tag)
+
+    if include_zero:
+        if min_count > 0:
+            stmt = stmt.where(Tag.count >= min_count)
+    else:
+        effective_min_count = max(min_count, 1)
+        stmt = stmt.where(Tag.count >= effective_min_count)
+
+    applied_limit = top_k if top_k is not None else limit
     stmt = (
-        select(Tag)
-        .order_by(Tag.count.desc(), Tag.name.asc())
+        stmt.order_by(Tag.count.desc(), Tag.name.asc())
         .offset(offset)
-        .limit(limit)
+        .limit(applied_limit)
     )
     tags = session.exec(stmt).all()
 
