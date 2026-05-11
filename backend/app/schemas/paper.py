@@ -31,3 +31,7 @@ class PaperItem(BaseModel):
 class PagedPapersResponse(BaseModel):
     items: list[PaperItem]
     count: int
+    request_id: Optional[str] = Field(
+        default=None,
+        description="Bundle identifier used when reporting recommendation interactions.",
+    )

@@ -14,6 +14,7 @@ from app.crud.paper import (
     feed_paper_outs_page,
     get_paper_out_by_id,
 )
+from app.crud.recommendation import create_request_id
 from app.models.paper import Paper
 from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperOut, PaperItem, PagedPapersResponse
@@ -61,6 +62,7 @@ def list_papers(
     offset: int = Query(0, ge=0),
 ):
     tag_filters = list(dict.fromkeys(tags or []))
+    request_id = create_request_id()
 
     outs, total = list_paper_outs_page(
         session,
@@ -95,6 +97,7 @@ def list_papers(
     return PagedPapersResponse(
         items=[PaperItem(paper=o) for o in outs],
         count=total,
+        request_id=request_id,
     )
 
 
@@ -113,6 +116,7 @@ def get_feed(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    request_id = create_request_id()
     outs, total = feed_paper_outs_page(
         session,
         user_id=user.id,
@@ -123,6 +127,7 @@ def get_feed(
     return PagedPapersResponse(
         items=[PaperItem(paper=o) for o in outs],
         count=total,
+        request_id=request_id,
     )
 
 

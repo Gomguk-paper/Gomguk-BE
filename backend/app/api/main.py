@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import paper, summary, tags, oauth, me, auth, add, event, stats
+from app.api.routes import paper, summary, tags, oauth, me, auth, add, event, stats, recommend
 
 
 api_router = APIRouter()
@@ -14,3 +14,4 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(add.router, prefix="/add", tags=["add"])
 api_router.include_router(event.router, prefix="/event", tags=["event"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
+api_router.include_router(recommend.router, tags=["recommend"])
