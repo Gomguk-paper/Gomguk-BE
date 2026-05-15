@@ -29,12 +29,6 @@ STATE_TTL_SECONDS = 10 * 60
 ACCESS_COOKIE_KEY = "access_token"
 REFRESH_COOKIE_KEY = "refresh_token"
 
-REFRESH_DAYS_DEFAULT = 1
-REFRESH_DAYS_REMEMBER = 7
-
-ACCESS_MINUTES = 20  # access 만료(세션 쿠키라도 exp는 짧게)
-
-
 def _cookie_samesite_and_secure(backend_public_url: str) -> tuple[str, bool]:
     """
     - http 개발환경: secure=False, samesite=lax
@@ -313,11 +307,9 @@ async def oauth_callback(
     try:
         state_payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         redirect_uri = str(state_payload["redirect_uri"])
-        remember = bool(state_payload.get("remember", False))
     except Exception:
         raise HTTPException(status_code=401, detail="INVALID_STATE")
 
-    ttl_days = REFRESH_DAYS_REMEMBER if remember else REFRESH_DAYS_DEFAULT
     callback_url = f"{backend_public_url}/api/oauth/{provider}/callback"
 
     fetcher = _get_provider_userinfo_fetcher(provider)
@@ -361,17 +353,17 @@ async def oauth_callback(
     access_payload = {
         "sub": str(user.id),
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=ACCESS_MINUTES)).timestamp()),
+        "exp": int((now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()),
     }
     access_token = jwt.encode(access_payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
     refresh_payload = {
         "sub": str(user.id),
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(days=ttl_days)).timestamp()),
+        "exp": int((now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)).timestamp()),
     }
     refresh_token = jwt.encode(refresh_payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    refresh_max_age = int(timedelta(days=ttl_days).total_seconds())
+    refresh_max_age = int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds())
 
     sep = "&" if "?" in redirect_uri else "?"
     final_redirect = f"{redirect_uri}{sep}is_new_user={str(is_new_user).lower()}&access_token={access_token}"

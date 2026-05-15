@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     )
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int
+    REFRESH_TOKEN_EXPIRE_DAYS: int
     FRONTEND_HOST: str
 
     def all_cors_origins(self) -> list[str]:

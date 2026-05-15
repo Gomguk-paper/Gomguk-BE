@@ -7,7 +7,7 @@ import jwt
 from fastapi import APIRouter, Cookie, HTTPException, status
 from jwt import PyJWTError
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from starlette.responses import Response
 
 from app.api.deps import SessionDep
@@ -21,8 +21,6 @@ router = APIRouter()
 # =========================
 # Constants
 # =========================
-ACCESS_TOKEN_EXPIRES_IN = 900  # seconds (15m)
-
 # 쿠키 기반 인증 강제: access/refresh 모두 쿠키로만 운용
 ACCESS_COOKIE_KEY = "access_token"
 REFRESH_COOKIE_KEY = "refresh_token"
@@ -30,6 +28,10 @@ REFRESH_COOKIE_KEY = "refresh_token"
 # oauth 라우터에서 발급한 옵션과 "통일"하는 걸 권장
 COOKIE_PATH = "/api"
 COOKIE_SAMESITE = "lax"
+
+
+def _access_token_expires_in_seconds() -> int:
+    return int(timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES).total_seconds())
 
 
 # =========================
@@ -47,7 +49,7 @@ class ErrorResponse(BaseModel):
 class RefreshResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int = ACCESS_TOKEN_EXPIRES_IN
+    expires_in: int = Field(default_factory=_access_token_expires_in_seconds)
 
 
 # =========================
@@ -66,7 +68,7 @@ def _issue_access_token(subject: str | int) -> str:
     - sub는 문자열로 고정 (PyJWT subject 검증 + TokenPayload 통일)
     """
     now = datetime.now(timezone.utc)
-    exp = now + timedelta(seconds=ACCESS_TOKEN_EXPIRES_IN)
+    exp = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     payload: dict[str, Any] = {
         "sub": str(subject),
@@ -169,7 +171,7 @@ def _delete_auth_cookies(response: Response) -> None:
     ),
 )
 def refresh_access_token(
-    response: Response,  # ✅ 쿠키 갱신용
+    response: Response,  # 쿠키 갱신용
     session: SessionDep,
     refresh_token: Optional[str] = Cookie(default=None),
 ) -> RefreshResponse:
@@ -183,7 +185,7 @@ def refresh_access_token(
     token_data = _decode_refresh_token(refresh_token)
     access_token = _issue_access_token(token_data.sub)
 
-    # ✅ 쿠키 기반 인증 강제: access_token 쿠키를 반드시 갱신
+    # 쿠키 기반 인증 강제: access_token 쿠키를 반드시 갱신
     _set_access_cookie(response, access_token)
 
     try:
@@ -241,7 +243,7 @@ def logout(
 
     resp = Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    # ✅ access/refresh 모두 삭제
+    # access/refresh 모두 삭제
     _delete_auth_cookies(resp)
 
     return resp
