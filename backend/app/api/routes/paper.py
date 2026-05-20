@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from typing import Optional, Literal
+import hashlib
+import json
+from collections.abc import Callable
+from typing import Optional, Literal, Any
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from redis import Redis
 from sqlmodel import select
 
-from app.api.deps import SessionDep, CurrentUser
+from app.api.deps import SessionDep, CurrentUser, RedisDep
+from app.core.config import settings
 from app.core.enums import Site, EventType
 from app.crud.event import create_event
 from app.crud.paper import (
@@ -19,6 +24,9 @@ from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
 from app.schemas.paper import PaperOut, PaperItem, PagedPapersResponse
 
 router = APIRouter()
+PAPER_PAGE_SIZE = 20
+PAPER_CACHE_WINDOW_SIZE = 100
+PAPER_CACHE_SCAN_COUNT = 100
 
 
 # =========================
@@ -35,6 +43,139 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _paper_cache_condition_hash(params: dict[str, Any]) -> str:
+    payload = json.dumps(params, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _paper_cache_key(
+    *,
+    kind: Literal["list", "feed"],
+    user_id: int,
+    condition_hash: str,
+    internal_offset: int,
+) -> str:
+    return (
+        f"papers:{kind}:user:{user_id}:"
+        f"cond:{condition_hash}:offset:{internal_offset}"
+    )
+
+
+def _delete_paper_cache_pattern(redis: Redis, pattern: str) -> int:
+    deleted = 0
+    try:
+        for key in redis.scan_iter(match=pattern, count=PAPER_CACHE_SCAN_COUNT):
+            deleted += int(redis.delete(key))
+    except Exception:
+        return deleted
+    return deleted
+
+
+def _delete_paper_cache_group(
+    redis: Redis,
+    *,
+    kind: Literal["list", "feed"],
+    user_id: int,
+    condition_hash: str,
+) -> int:
+    return _delete_paper_cache_pattern(
+        redis,
+        f"papers:{kind}:user:{user_id}:cond:{condition_hash}:offset:*",
+    )
+
+
+def _delete_user_paper_cache(redis: Redis, *, user_id: int) -> int:
+    return _delete_paper_cache_pattern(redis, f"papers:*:user:{user_id}:cond:*")
+
+
+def _get_cached_paper_response(
+    redis: Redis,
+    *,
+    kind: Literal["list", "feed"],
+    user_id: int,
+    offset: int,
+    condition_params: dict[str, Any],
+    load_response: Callable[[int], PagedPapersResponse],
+) -> PagedPapersResponse:
+    condition_hash = _paper_cache_condition_hash(condition_params)
+    internal_offset = offset % PAPER_CACHE_WINDOW_SIZE
+    refresh_cache = offset > 0 and internal_offset == 0
+
+    if refresh_cache:
+        _delete_paper_cache_group(
+            redis,
+            kind=kind,
+            user_id=user_id,
+            condition_hash=condition_hash,
+        )
+
+    cache_key = _paper_cache_key(
+        kind=kind,
+        user_id=user_id,
+        condition_hash=condition_hash,
+        internal_offset=internal_offset,
+    )
+
+    cached = None
+    if not refresh_cache:
+        try:
+            cached = redis.get(cache_key)
+        except Exception:
+            cached = None
+
+    if cached is not None:
+        try:
+            return PagedPapersResponse.model_validate_json(cached)
+        except Exception:
+            pass
+
+    response = load_response(internal_offset)
+
+    try:
+        redis.setex(
+            cache_key,
+            settings.PAPER_CACHE_TTL_SECONDS,
+            response.model_dump_json(),
+        )
+    except Exception:
+        pass
+
+    return response
+
+
+def _record_paper_search_event(
+    session: SessionDep,
+    *,
+    user_id: int,
+    q: Optional[str],
+    tag_filters: list[int],
+    source: Optional[Site],
+    sort: str,
+    limit: int,
+    offset: int,
+) -> None:
+    if not (q or tag_filters or (source is not None)):
+        return
+
+    create_event(
+        session,
+        user_id=user_id,
+        event_type=EventType.search,
+        meta={
+            "query": q,
+            "filters": {
+                "tags": tag_filters,
+                "source": source.value if source is not None else None,
+            },
+            "sort": sort,
+            "limit": limit,
+            "offset": offset,
+            "source": "paper_list",
+        },
+    )
+    session.commit()
+
+
 # =========================
 # Routes
 # =========================
@@ -49,6 +190,7 @@ def utcnow() -> datetime:
 )
 def list_papers(
     session: SessionDep,
+    redis: RedisDep,
     user: CurrentUser,
     q: Optional[str] = Query(None, description="제목/요약(short) 검색 (부분 일치)"),
     tags: Optional[list[int]] = Query(None, description="태그 id 필터 (복수, AND 조건)"),
@@ -62,40 +204,48 @@ def list_papers(
 ):
     tag_filters = list(dict.fromkeys(tags or []))
 
-    outs, total = list_paper_outs_page(
+    def load_response(internal_offset: int) -> PagedPapersResponse:
+        outs, total = list_paper_outs_page(
+            session,
+            user_id=user.id,
+            q=q,
+            tags=tag_filters or None,
+            source=source,
+            sort=sort,
+            limit=PAPER_PAGE_SIZE,
+            offset=internal_offset,
+        )
+        return PagedPapersResponse(
+            items=[PaperItem(paper=o) for o in outs],
+            count=total,
+        )
+
+    response = _get_cached_paper_response(
+        redis,
+        kind="list",
+        user_id=user.id,
+        offset=offset,
+        condition_params={
+            "q": q or "",
+            "tags": tag_filters,
+            "source": source.value if source is not None else "",
+            "sort": sort,
+        },
+        load_response=load_response,
+    )
+
+    _record_paper_search_event(
         session,
         user_id=user.id,
         q=q,
-        tags=tag_filters or None,
+        tag_filters=tag_filters,
         source=source,
         sort=sort,
         limit=limit,
         offset=offset,
     )
 
-    if q or tag_filters or (source is not None):
-        create_event(
-            session,
-            user_id=user.id,
-            event_type=EventType.search,
-            meta={
-                "query": q,
-                "filters": {
-                    "tags": tag_filters,
-                    "source": source.value if source is not None else None,
-                },
-                "sort": sort,
-                "limit": limit,
-                "offset": offset,
-                "source": "paper_list",
-            },
-        )
-        session.commit()
-
-    return PagedPapersResponse(
-        items=[PaperItem(paper=o) for o in outs],
-        count=total,
-    )
+    return response
 
 
 @router.get(
@@ -109,21 +259,44 @@ def list_papers(
 )
 def get_feed(
     session: SessionDep,
+    redis: RedisDep,
     user: CurrentUser,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    outs, total = feed_paper_outs_page(
-        session,
+    def load_response(internal_offset: int) -> PagedPapersResponse:
+        outs, total = feed_paper_outs_page(
+            session,
+            user_id=user.id,
+            limit=PAPER_PAGE_SIZE,
+            offset=internal_offset,
+        )
+        return PagedPapersResponse(
+            items=[PaperItem(paper=o) for o in outs],
+            count=total,
+        )
+
+    return _get_cached_paper_response(
+        redis,
+        kind="feed",
         user_id=user.id,
-        limit=limit,
         offset=offset,
+        condition_params={},
+        load_response=load_response,
     )
 
-    return PagedPapersResponse(
-        items=[PaperItem(paper=o) for o in outs],
-        count=total,
-    )
+
+@router.delete(
+    "/cache",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"description": "AUTH_REQUIRED (?좏겙 ?놁쓬/留뚮즺/?좏슚?섏? ?딆쓬)"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+def clear_paper_cache(redis: RedisDep, user: CurrentUser):
+    _delete_user_paper_cache(redis, user_id=user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

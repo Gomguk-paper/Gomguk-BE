@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     BACKEND_PUBLIC_URL: str
     MINIO_ROOT_USER: str
     MINIO_ROOT_PASSWORD: str
+    REDIS_URL: str
+    PAPER_CACHE_TTL_SECONDS: int = 10800
 
 
 settings = Settings()

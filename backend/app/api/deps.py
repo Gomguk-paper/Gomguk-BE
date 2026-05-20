@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from functools import lru_cache
 from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from jwt import PyJWTError
 from pydantic import ValidationError
+from redis import Redis
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -23,6 +25,23 @@ def get_db() -> Generator[Session, None, None]:
 
 
 SessionDep = Annotated[Session, Depends(get_db)]
+
+
+@lru_cache(maxsize=1)
+def _get_redis_client() -> Redis:
+    return Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+
+
+def get_redis() -> Generator[Redis, None, None]:
+    yield _get_redis_client()
+
+
+RedisDep = Annotated[Redis, Depends(get_redis)]
 
 
 def _auth_required() -> None:
