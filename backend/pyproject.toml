@@ -48,4 +48,5 @@ dependencies = [
     "alembic[binary]>=1.18.1",
     "httpx>=0.28.1",
     "redis>=7.4.0",
+    "psutil>=7.2.2",
 ]
