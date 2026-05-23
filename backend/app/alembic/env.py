@@ -16,6 +16,13 @@ import app.models #모델 로딩
 target_metadata = SQLModel.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    # Allow reflection to avoid FK resolution errors, but ignore during comparison to prevent DDL changes.
+    if type_ == "table" and name == "paper_pool" and not reflected:
+        return False
+    return True
+
+
 def run_migrations_offline() -> None: #alembic upgrade head --sql
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -23,6 +30,7 @@ def run_migrations_offline() -> None: #alembic upgrade head --sql
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -41,6 +49,7 @@ def run_migrations_online() -> None: #alembic upgrade head
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

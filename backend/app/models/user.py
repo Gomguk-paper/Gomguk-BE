@@ -1,7 +1,7 @@
 # from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, Any, TYPE_CHECKING
-from sqlalchemy import Column, UniqueConstraint, text
+from sqlalchemy import Column, UniqueConstraint, text, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -58,6 +58,10 @@ class User(SQLModel, table=True):
     name: str = Field(nullable=False)
     profile_image: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
+    is_admin: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=text("false")),
+    )
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB, nullable=False, server_default=text("'{}'::jsonb")),

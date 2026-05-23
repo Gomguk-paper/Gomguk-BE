@@ -44,6 +44,7 @@ class MeResponse(BaseModel):
     provider: str
     email: str
     name: str
+    is_admin: bool
     profile_image: Optional[str] = None
     meta: dict[str, Any] = Field(default_factory=dict)
     counts: MeCounts = Field(default_factory=MeCounts)
@@ -122,6 +123,7 @@ def me(
         provider=user.provider,
         email=user.email,
         name=user.name,
+        is_admin=user.is_admin,
         profile_image=profile_image_to_public_url(user.profile_image),
         meta=user.meta or {},
         counts=MeCounts(liked=liked_count, saved=saved_count, read=read_count),

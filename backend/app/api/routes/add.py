@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field as PydField
 from sqlmodel import select
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, CurrentAdmin
 from app.core.enums import Site, SummaryStyle
 from app.models.paper import Paper, Tag, PaperTag, PaperSummary
 
@@ -174,7 +174,7 @@ def _attach_tags(session: SessionDep, paper_id: int, tag_ids: list[int]) -> int:
         500: {"description": "Internal Server Error"},
     },
 )
-def add_tag(session: SessionDep, body: AddTagBody):
+def add_tag(session: SessionDep, current_admin: CurrentAdmin, body: AddTagBody):
     exists = session.exec(select(Tag).where(Tag.name == body.name)).first()
     if exists:
         raise HTTPException(status_code=409, detail="TAG_NAME_EXISTS")
@@ -203,7 +203,7 @@ def add_tag(session: SessionDep, body: AddTagBody):
         500: {"description": "Internal Server Error"},
     },
 )
-def add_paper(session: SessionDep, body: AddPaperBody):
+def add_paper(session: SessionDep, current_admin: CurrentAdmin, body: AddPaperBody):
     site_enum = _parse_site(body.source)
 
     paper = Paper(
@@ -248,7 +248,7 @@ def add_paper(session: SessionDep, body: AddPaperBody):
         500: {"description": "Internal Server Error"},
     },
 )
-def add_summary(session: SessionDep, body: AddSummaryBody):
+def add_summary(session: SessionDep, current_admin: CurrentAdmin, body: AddSummaryBody):
     paper = session.get(Paper, body.paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="PAPER_NOT_FOUND")
@@ -296,7 +296,7 @@ def add_summary(session: SessionDep, body: AddSummaryBody):
         500: {"description": "Internal Server Error"},
     },
 )
-def attach_tags_to_paper(session: SessionDep, paper_id: int, body: AddPaperTagsBody):
+def attach_tags_to_paper(session: SessionDep, current_admin: CurrentAdmin, paper_id: int, body: AddPaperTagsBody):
     paper = session.get(Paper, paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="PAPER_NOT_FOUND")

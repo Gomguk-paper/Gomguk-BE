@@ -50,6 +50,7 @@ class Paper(SQLModel, table=True):
         )
     )
     citation_count: int = Field(default=0, nullable=False)
+    paper_pool_id: Optional[int] = Field(default=None, foreign_key="paper_pool.id")
 
     summaries: list["PaperSummary"] = Relationship(back_populates="paper")
     paper_tags: list["PaperTag"] = Relationship(back_populates="paper")
@@ -98,3 +99,9 @@ class Tag(SQLModel, table=True):
     papers: list["Paper"] = Relationship(
         back_populates="tags", link_model=PaperTag
     )
+
+
+class PaperPool(SQLModel, table=True):
+    __tablename__ = "paper_pool"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
