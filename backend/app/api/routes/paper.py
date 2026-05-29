@@ -3,30 +3,31 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from typing import Optional, Literal, Any
 from datetime import datetime, timezone
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from redis import Redis
 from sqlmodel import select
 
-from app.api.deps import SessionDep, CurrentUser, RedisDep
+from app.api.deps import CurrentUser, RedisDep, SessionDep
 from app.core.config import settings
-from app.core.enums import Site, EventType
+from app.core.enums import EventType, Site
 from app.crud.event import create_event
 from app.crud.paper import (
-    list_paper_outs_page,
     feed_paper_outs_page,
     get_paper_out_by_id,
+    list_paper_outs_page,
 )
 from app.models.paper import Paper
 from app.models.user import UserPaperLike, UserPaperScrap, UserPaperView
-from app.schemas.paper import PaperOut, PaperItem, PagedPapersResponse
+from app.schemas.paper import PagedPapersResponse, PaperItem, PaperOut
 
 router = APIRouter()
 PAPER_PAGE_SIZE = 20
 PAPER_CACHE_WINDOW_SIZE = 100
 PAPER_CACHE_SCAN_COUNT = 100
+PAPER_INFINITE_SCROLL_COUNT = 99999
 
 
 # =========================
@@ -193,11 +194,11 @@ def list_papers(
     redis: RedisDep,
     user: CurrentUser,
     q: Optional[str] = Query(None, description="제목/요약(short) 검색 (부분 일치)"),
-    tags: Optional[list[int]] = Query(None, description="태그 id 필터 (복수, AND 조건)"),
+    tags: Optional[list[int]] = Query(None, description="태그 ID 필터 (복수 지정 시 AND 조건)"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
     sort: Literal["popular", "recent"] = Query(
         "recent",
-        description="정렬 옵션(popular=좋아요순, recent=최신순)",
+        description="정렬 옵션 (popular=좋아요순, recent=최신순)",
     ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -205,7 +206,7 @@ def list_papers(
     tag_filters = list(dict.fromkeys(tags or []))
 
     def load_response(internal_offset: int) -> PagedPapersResponse:
-        outs, total = list_paper_outs_page(
+        outs, _total = list_paper_outs_page(
             session,
             user_id=user.id,
             q=q,
@@ -217,7 +218,7 @@ def list_papers(
         )
         return PagedPapersResponse(
             items=[PaperItem(paper=o) for o in outs],
-            count=total,
+            count=PAPER_INFINITE_SCROLL_COUNT,
         )
 
     response = _get_cached_paper_response(
@@ -250,7 +251,7 @@ def list_papers(
 
 @router.get(
     "/feed",
-    summary="메인 화면 피드 조회 (추천 시스템 기반)",
+    summary="메인 화면 피드 조회 (추천 점수 기반)",
     response_model=PagedPapersResponse,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
@@ -265,7 +266,7 @@ def get_feed(
     offset: int = Query(0, ge=0),
 ):
     def load_response(internal_offset: int) -> PagedPapersResponse:
-        outs, total = feed_paper_outs_page(
+        outs, _total = feed_paper_outs_page(
             session,
             user_id=user.id,
             limit=PAPER_PAGE_SIZE,
@@ -273,7 +274,7 @@ def get_feed(
         )
         return PagedPapersResponse(
             items=[PaperItem(paper=o) for o in outs],
-            count=total,
+            count=PAPER_INFINITE_SCROLL_COUNT,
         )
 
     return _get_cached_paper_response(
@@ -290,7 +291,7 @@ def get_feed(
     "/cache",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
-        401: {"description": "AUTH_REQUIRED (?좏겙 ?놁쓬/留뚮즺/?좏슚?섏? ?딆쓬)"},
+        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
         500: {"description": "Internal Server Error"},
     },
 )
@@ -301,7 +302,7 @@ def clear_paper_cache(redis: RedisDep, user: CurrentUser):
 
 @router.get(
     "/{paper_id}",
-    summary="논문 개별 조회 (디버그용)",
+    summary="논문 개별 조회",
     response_model=PaperOut,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
@@ -333,7 +334,7 @@ def get_paper_detail(
 
 @router.put(
     "/{paper_id}/like",
-    summary="좋아요 추가 (멱등)",
+    summary="좋아요 추가",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
@@ -400,7 +401,7 @@ def unlike_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
 @router.put(
     "/{paper_id}/scrap",
-    summary="스크랩 추가 (멱등)",
+    summary="스크랩 추가",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
@@ -469,7 +470,7 @@ def unscrap_paper(session: SessionDep, user: CurrentUser, paper_id: int):
 
 @router.put(
     "/{paper_id}/view",
-    summary="읽음(조회) 기록 추가/갱신 (멱등)",
+    summary="읽음(조회) 기록 추가/갱신",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},

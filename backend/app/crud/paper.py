@@ -65,7 +65,7 @@ def get_paper_out_by_id(
     paper_id: int,
 ) -> Optional[PaperOut]:
     """
-    단건 PaperOut 조립 (디버그/상세용)
+    단일 논문을 PaperOut으로 조립한다.
     """
     paper = session.exec(select(Paper).where(Paper.id == paper_id)).first()
     if paper is None:
@@ -152,8 +152,8 @@ def get_paper_outs_by_ids(
     scores_map: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> list[PaperOut]:
     """
-    paper_ids(한 페이지)를 받아 PaperOut 리스트를 배치로 조립.
-    - 페이지당 쿼리 수를 고정시키는 목적.
+    paper_ids 한 페이지를 받아 PaperOut 리스트를 배치로 조립한다.
+    - 페이지별 쿼리 수를 고정시키는 목적.
     - 반환 순서는 paper_ids 입력 순서를 따른다.
     """
     if not paper_ids:
@@ -209,7 +209,7 @@ def get_paper_outs_by_ids(
     ).all()
     scrap_count_map = {pid: cnt for pid, cnt in scrap_rows}
 
-    # summaries (fallback: plain → instagram_card_news → basic_aggro)
+    # summaries (fallback: plain -> instagram_card_news -> basic_aggro)
     summary_map: dict[int, PaperSummary] = {}
     for style in ("plain", "instagram_card_news", "basic_aggro"):
         missing_ids = [pid for pid in paper_ids if pid not in summary_map]
@@ -269,7 +269,7 @@ def get_top_global_trending_papers(
     offset: int = 0,
 ) -> list[tuple[int, float]]:
     """
-    전역 트렌딩 점수 기준 상위 paper 목록 반환.
+    전역 트렌딩 점수 기준 상위 paper 목록을 반환한다.
     score = 0.20 * citation_norm + 0.35 * freshness + landmark
     returns: [(paper_id, trending_score), ...]
     """
@@ -336,14 +336,14 @@ def _recommend_paper_ids(
     source: Optional[Site] = None,
 ) -> tuple[list[int], int, dict[int, tuple[float, float, float]]]:
     """
-    추천 점수 기반 논문 ID 반환.
+    추천 점수 기반 논문 ID 목록을 반환한다.
     score = 0.40 * tag_similarity + 0.25 * citation_norm + 0.25 * freshness - 0.10 * view_penalty
 
     Returns:
         (paper_ids, total, scores_map)
         scores_map: {paper_id: (recommend_score, trending_score, freshness_score)}
 
-    Cold-start: 이력 0건이면 tag_similarity=0 → 인기+최신 기반 정렬로 자연 fallback.
+    Cold-start 사용자는 tag_similarity=0 상태에서 인기+최신 기반 정렬로 자연스럽게 fallback된다.
     """
     filters = []
     params: dict[str, Any] = {"user_id": user_id, "lim": limit, "off": offset}
@@ -485,8 +485,8 @@ def _compute_scores_for_ids(
     paper_ids: list[int],
 ) -> dict[int, tuple[float, float, float]]:
     """
-    지정된 paper_ids에 대해 (recommend_score, trending_score, freshness_score) 계산.
-    /paper/ 목록 조회에서 점수를 포함시키기 위해 사용.
+    지정된 paper_ids에 대해 recommend/trending/freshness 점수를 계산한다.
+    /paper/ 목록 조회에서 점수를 포함시키기 위해 사용한다.
     """
     if not paper_ids:
         return {}
@@ -601,7 +601,7 @@ def _compute_scores_for_ids(
 # =========================
 def _apply_list_sort(stmt, *, sort: SortKey):
     """
-    /papers/ 전용 정렬 (popular / recent)
+    /papers/ 전용 정렬 (popular / recent).
     """
     if sort == "popular":
         like_counts = (
@@ -612,7 +612,7 @@ def _apply_list_sort(stmt, *, sort: SortKey):
             .group_by(UserPaperLike.paper_id)
             .subquery()
         )
-        # 좋아요 없는 paper도 포함되게 outer join
+        # 좋아요가 없는 paper도 포함되도록 outer join한다.
         return stmt.outerjoin(like_counts, like_counts.c.paper_id == Paper.id).order_by(
             like_counts.c.like_cnt.desc().nullslast()
         )
@@ -636,10 +636,10 @@ def list_paper_outs_page(
     offset: int,
 ) -> tuple[list[PaperOut], int]:
     """
-    /papers/ 목록 조회
+    /papers/ 목록 조회.
     - 필터(q/tag/source) 적용
-    - sort 적용(popular/recent)
-    - limit/offset 페이징
+    - 정렬(popular/recent) 적용
+    - limit/offset 페이지 적용
     - PaperOut은 배치로 조립
     """
     base = select(Paper)
@@ -684,8 +684,8 @@ def feed_paper_outs_page(
     offset: int,
 ) -> tuple[list[PaperOut], int]:
     """
-    /papers/feed — 추천 점수 기반 개인화 피드.
-    Cold-start 사용자는 인기+최신 기반으로 자연 fallback.
+    /papers/feed 추천 점수 기반 개인화 피드.
+    Cold-start 사용자는 인기+최신 기반으로 자연스럽게 fallback된다.
     """
     paper_ids, total, scores_map = _recommend_paper_ids(
         session,
