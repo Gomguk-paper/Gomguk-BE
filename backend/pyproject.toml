@@ -34,7 +34,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     "python-multipart>=0.0.20",
     "requests==2.32.5",
-    "boto3>=1.40.0",
+    "boto3>=1.43.62",
     "rsa==4.9.1",
     "soupsieve==2.8.1",
     "sqlalchemy==2.0.45",
