@@ -5,7 +5,7 @@ requires-python = ">=3.10"
 dependencies = [
     "annotated-doc==0.0.4",
     "annotated-types==0.7.0",
-    "anyio==4.12.1",
+    "anyio==4.14.2",
     "beautifulsoup4==4.14.3",
     "certifi==2026.1.4",
     "cffi==2.0.0",
