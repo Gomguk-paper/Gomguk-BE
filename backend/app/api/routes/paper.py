@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from redis import Redis
 from sqlmodel import select
 
-from app.api.deps import CurrentUser, RedisDep, SessionDep
+from app.api.deps import CurrentUser, OptionalUser, RedisDep, SessionDep
 from app.core.config import settings
 from app.core.enums import EventType, Site
 from app.crud.event import create_event
@@ -49,15 +49,20 @@ def _paper_cache_condition_hash(params: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def _cache_user_segment(user_id: Optional[int]) -> str:
+    # 비로그인 조회는 개인화가 없으므로 하나의 anon 캐시를 공유한다.
+    return "anon" if user_id is None else str(user_id)
+
+
 def _paper_cache_key(
     *,
     kind: Literal["list", "feed"],
-    user_id: int,
+    user_id: Optional[int],
     condition_hash: str,
     internal_offset: int,
 ) -> str:
     return (
-        f"papers:{kind}:user:{user_id}:"
+        f"papers:{kind}:user:{_cache_user_segment(user_id)}:"
         f"cond:{condition_hash}:offset:{internal_offset}"
     )
 
@@ -76,12 +81,12 @@ def _delete_paper_cache_group(
     redis: Redis,
     *,
     kind: Literal["list", "feed"],
-    user_id: int,
+    user_id: Optional[int],
     condition_hash: str,
 ) -> int:
     return _delete_paper_cache_pattern(
         redis,
-        f"papers:{kind}:user:{user_id}:cond:{condition_hash}:offset:*",
+        f"papers:{kind}:user:{_cache_user_segment(user_id)}:cond:{condition_hash}:offset:*",
     )
 
 
@@ -93,7 +98,7 @@ def _get_cached_paper_response(
     redis: Redis,
     *,
     kind: Literal["list", "feed"],
-    user_id: int,
+    user_id: Optional[int],
     offset: int,
     condition_params: dict[str, Any],
     load_response: Callable[[int], PagedPapersResponse],
@@ -182,17 +187,16 @@ def _record_paper_search_event(
 # =========================
 @router.get(
     "/",
-    summary="논문 목록 조회",
+    summary="논문 목록 조회 (비로그인 허용)",
     response_model=PagedPapersResponse,
     responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
         500: {"description": "Internal Server Error"},
     },
 )
 def list_papers(
     session: SessionDep,
     redis: RedisDep,
-    user: CurrentUser,
+    user: OptionalUser,
     q: Optional[str] = Query(None, description="제목/요약(short) 검색 (부분 일치)"),
     tags: Optional[list[int]] = Query(None, description="태그 ID 필터 (복수 지정 시 AND 조건)"),
     source: Optional[Site] = Query(None, description="출처(site) 필터 (예: arxiv)"),
@@ -204,11 +208,12 @@ def list_papers(
     offset: int = Query(0, ge=0),
 ):
     tag_filters = list(dict.fromkeys(tags or []))
+    user_id = user.id if user else None
 
     def load_response(internal_offset: int) -> PagedPapersResponse:
         outs, _total = list_paper_outs_page(
             session,
-            user_id=user.id,
+            user_id=user_id,
             q=q,
             tags=tag_filters or None,
             source=source,
@@ -224,7 +229,7 @@ def list_papers(
     response = _get_cached_paper_response(
         redis,
         kind="list",
-        user_id=user.id,
+        user_id=user_id,
         offset=offset,
         condition_params={
             "q": q or "",
@@ -235,40 +240,42 @@ def list_papers(
         load_response=load_response,
     )
 
-    _record_paper_search_event(
-        session,
-        user_id=user.id,
-        q=q,
-        tag_filters=tag_filters,
-        source=source,
-        sort=sort,
-        limit=limit,
-        offset=offset,
-    )
+    if user is not None:
+        _record_paper_search_event(
+            session,
+            user_id=user.id,
+            q=q,
+            tag_filters=tag_filters,
+            source=source,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+        )
 
     return response
 
 
 @router.get(
     "/feed",
-    summary="메인 화면 피드 조회 (추천 점수 기반)",
+    summary="메인 화면 피드 조회 (추천 점수 기반, 비로그인 허용)",
     response_model=PagedPapersResponse,
     responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
         500: {"description": "Internal Server Error"},
     },
 )
 def get_feed(
     session: SessionDep,
     redis: RedisDep,
-    user: CurrentUser,
+    user: OptionalUser,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    user_id = user.id if user else None
+
     def load_response(internal_offset: int) -> PagedPapersResponse:
         outs, _total = feed_paper_outs_page(
             session,
-            user_id=user.id,
+            user_id=user_id,
             limit=PAPER_PAGE_SIZE,
             offset=internal_offset,
         )
@@ -280,7 +287,7 @@ def get_feed(
     return _get_cached_paper_response(
         redis,
         kind="feed",
-        user_id=user.id,
+        user_id=user_id,
         offset=offset,
         condition_params={},
         load_response=load_response,
@@ -302,32 +309,34 @@ def clear_paper_cache(redis: RedisDep, user: CurrentUser):
 
 @router.get(
     "/{paper_id}",
-    summary="논문 개별 조회",
+    summary="논문 개별 조회 (비로그인 허용)",
     response_model=PaperOut,
     responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
         404: {"description": "PAPER_NOT_FOUND"},
         500: {"description": "Internal Server Error"},
     },
 )
 def get_paper_detail(
     session: SessionDep,
-    user: CurrentUser,
+    user: OptionalUser,
     paper_id: int,
 ):
     _get_paper_or_404(session, paper_id)
 
-    out = get_paper_out_by_id(session, user_id=user.id, paper_id=paper_id)
+    out = get_paper_out_by_id(
+        session, user_id=user.id if user else None, paper_id=paper_id
+    )
     if out is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    create_event(
-        session,
-        user_id=user.id,
-        event_type=EventType.view,
-        meta={"paper_id": paper_id, "source": "paper_detail"},
-    )
-    session.commit()
+    if user is not None:
+        create_event(
+            session,
+            user_id=user.id,
+            event_type=EventType.view,
+            meta={"paper_id": paper_id, "source": "paper_detail"},
+        )
+        session.commit()
 
     return out
 

@@ -61,11 +61,12 @@ def _papers_s3_to_http(url: Optional[str]) -> Optional[str]:
 def get_paper_out_by_id(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     paper_id: int,
 ) -> Optional[PaperOut]:
     """
     단일 논문을 PaperOut으로 조립한다.
+    user_id가 None(비로그인)이면 is_liked/is_scrapped는 False.
     """
     paper = session.exec(select(Paper).where(Paper.id == paper_id)).first()
     if paper is None:
@@ -77,25 +78,27 @@ def get_paper_out_by_id(
         .order_by(PaperTag.tag_id.asc())
     ).all()
 
-    is_liked = (
-        session.exec(
-            select(UserPaperLike).where(
-                UserPaperLike.user_id == user_id,
-                UserPaperLike.paper_id == paper_id,
-            )
-        ).first()
-        is not None
-    )
-
-    is_scrapped = (
-        session.exec(
-            select(UserPaperScrap).where(
-                UserPaperScrap.user_id == user_id,
-                UserPaperScrap.paper_id == paper_id,
-            )
-        ).first()
-        is not None
-    )
+    is_liked = False
+    is_scrapped = False
+    if user_id is not None:
+        is_liked = (
+            session.exec(
+                select(UserPaperLike).where(
+                    UserPaperLike.user_id == user_id,
+                    UserPaperLike.paper_id == paper_id,
+                )
+            ).first()
+            is not None
+        )
+        is_scrapped = (
+            session.exec(
+                select(UserPaperScrap).where(
+                    UserPaperScrap.user_id == user_id,
+                    UserPaperScrap.paper_id == paper_id,
+                )
+            ).first()
+            is not None
+        )
 
     like_count = get_like_count_by_paper_id(session, paper_id)
     scrap_count = get_scrap_count_by_paper_id(session, paper_id)
@@ -147,7 +150,7 @@ def get_paper_out_by_id(
 def get_paper_outs_by_ids(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     paper_ids: list[int],
     scores_map: Optional[dict[int, tuple[float, float, float]]] = None,
 ) -> list[PaperOut]:
@@ -173,25 +176,26 @@ def get_paper_outs_by_ids(
     for pid, tid in tag_rows:
         tags_map[pid].append(tid)
 
-    # liked ids (user)
-    liked_ids = set(
-        session.exec(
-            select(UserPaperLike.paper_id).where(
-                UserPaperLike.user_id == user_id,
-                UserPaperLike.paper_id.in_(paper_ids),
-            )
-        ).all()
-    )
-
-    # scrapped ids (user)
-    scrapped_ids = set(
-        session.exec(
-            select(UserPaperScrap.paper_id).where(
-                UserPaperScrap.user_id == user_id,
-                UserPaperScrap.paper_id.in_(paper_ids),
-            )
-        ).all()
-    )
+    # liked / scrapped ids (user) — 비로그인은 빈 집합
+    liked_ids: set[int] = set()
+    scrapped_ids: set[int] = set()
+    if user_id is not None:
+        liked_ids = set(
+            session.exec(
+                select(UserPaperLike.paper_id).where(
+                    UserPaperLike.user_id == user_id,
+                    UserPaperLike.paper_id.in_(paper_ids),
+                )
+            ).all()
+        )
+        scrapped_ids = set(
+            session.exec(
+                select(UserPaperScrap.paper_id).where(
+                    UserPaperScrap.user_id == user_id,
+                    UserPaperScrap.paper_id.in_(paper_ids),
+                )
+            ).all()
+        )
 
     # like counts (global)
     like_rows = session.exec(
@@ -328,7 +332,7 @@ def get_top_global_trending_papers(
 def _recommend_paper_ids(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     limit: int,
     offset: int,
     q: Optional[str] = None,
@@ -344,6 +348,7 @@ def _recommend_paper_ids(
         scores_map: {paper_id: (recommend_score, trending_score, freshness_score)}
 
     Cold-start 사용자는 tag_similarity=0 상태에서 인기+최신 기반 정렬로 자연스럽게 fallback된다.
+    user_id가 None(비로그인)이면 사용자 프로필/조회 이력이 비어 같은 fallback을 탄다.
     """
     filters = []
     params: dict[str, Any] = {"user_id": user_id, "lim": limit, "off": offset}
@@ -481,7 +486,7 @@ def _recommend_paper_ids(
 def _compute_scores_for_ids(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     paper_ids: list[int],
 ) -> dict[int, tuple[float, float, float]]:
     """
@@ -627,7 +632,7 @@ def _apply_list_sort(stmt, *, sort: SortKey):
 def list_paper_outs_page(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     q: Optional[str],
     tags: Optional[list[int]],
     source: Optional[Site],
@@ -679,7 +684,7 @@ def list_paper_outs_page(
 def feed_paper_outs_page(
     session: SessionDep,
     *,
-    user_id: int,
+    user_id: Optional[int],
     limit: int,
     offset: int,
 ) -> tuple[list[PaperOut], int]:

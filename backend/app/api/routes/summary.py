@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import select
 
-from app.api.deps import SessionDep, CurrentUser
+from app.api.deps import SessionDep
 from app.core.enums import SummaryStyle
 from app.models.paper import Paper, PaperSummary
 
@@ -50,17 +50,15 @@ def _parse_summary_style(style: str) -> SummaryStyle:
 # =========================
 @router.get(
     "/{paper_id}",
-    summary="특정 논문의 요약 조회",
+    summary="특정 논문의 요약 조회 (비로그인 허용)",
     response_model=SummaryResponse,
     responses={
-        401: {"description": "AUTH_REQUIRED (토큰 없음/만료/유효하지 않음)"},
         404: {"description": "NOT_FOUND (paper 또는 summary 없음)"},
         500: {"description": "Internal Server Error"},
     },
 )
 def get_summary(
     session: SessionDep,
-    user: CurrentUser,
     paper_id: int,
     style: str = Query("basic_aggro"),
 ):

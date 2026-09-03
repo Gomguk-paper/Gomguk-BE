@@ -51,31 +51,37 @@ def _auth_required() -> None:
     )
 
 
-def get_current_user(request: Request, session: SessionDep) -> User:
+def _resolve_user(request: Request, session: Session) -> User | None:
+    """쿠키/Authorization 헤더의 토큰으로 사용자를 찾는다. 토큰이 없거나 유효하지 않으면 None."""
     token = request.cookies.get(ACCESS_COOKIE_KEY)
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
     if not token:
-        _auth_required()
+        return None
 
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         token_data = TokenPayload(**payload)
-    except (PyJWTError, ValidationError):
-        _auth_required()
-
-    try:
         user_id = int(token_data.sub)
-    except Exception:
-        _auth_required()
+    except (PyJWTError, ValidationError, TypeError, ValueError):
+        return None
 
-    user = session.get(User, user_id)
-    if not user:
-        _auth_required()
+    return session.get(User, user_id)
 
+
+def get_current_user(request: Request, session: SessionDep) -> User:
+    user = _resolve_user(request, session)
+    if user is None:
+        _auth_required()
     return user
 
 
+def get_optional_user(request: Request, session: SessionDep) -> User | None:
+    """비로그인 조회를 허용하는 엔드포인트용. 로그인 상태면 User, 아니면 None."""
+    return _resolve_user(request, session)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
